@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Calendar board">
+  <defs>
+    <linearGradient id="dscb-sheet" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3f8ef7"/>
+      <stop offset="1" stop-color="#2a6ad4"/>
+    </linearGradient>
+  </defs>
+  <rect x="5" y="9" width="38" height="34" rx="8" fill="url(#dscb-sheet)"/>
+  <rect x="5" y="9" width="38" height="10" rx="8" fill="#ffffff" opacity="0.22"/>
+  <rect x="5" y="16" width="38" height="3" fill="#ffffff" opacity="0.35"/>
+  <rect x="13" y="5" width="4" height="8" rx="2" fill="#e8f1ff"/>
+  <rect x="31" y="5" width="4" height="8" rx="2" fill="#e8f1ff"/>
+  <circle cx="16" cy="26" r="2.4" fill="#ffffff" opacity="0.85"/>
+  <circle cx="24" cy="26" r="2.4" fill="#ffffff" opacity="0.85"/>
+  <circle cx="32" cy="26" r="2.4" fill="#ffffff" opacity="0.5"/>
+  <circle cx="16" cy="34" r="2.4" fill="#ffffff" opacity="0.5"/>
+  <circle cx="24" cy="34" r="3.4" fill="#ffd76a"/>
+  <circle cx="32" cy="34" r="2.4" fill="#ffffff" opacity="0.5"/>
+</svg>

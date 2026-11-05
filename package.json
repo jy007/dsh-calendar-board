@@ -1,0 +1,48 @@
+{
+  "name": "dsh-calendar-board",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Month-view calendar board for DeepSeek Harness: daily tasks, scheduled reminders, inline day editing, and a celebration on completion.",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": []
+    }
+  },
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "calendar",
+    "todo",
+    "reminders"
+  ],
+  "license": "MIT",
+  "author": "jy007",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jy007/dsh-calendar-board.git"
+  },
+  "homepage": "https://github.com/jy007/dsh-calendar-board#readme",
+  "bugs": {
+    "url": "https://github.com/jy007/dsh-calendar-board/issues"
+  }
+}
