@@ -1,0 +1,54 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: JavaScript syntax
+        run: |
+          node --check index.js
+          node --check client.js
+      - name: Manifests and locale resources
+        run: |
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') throw new Error('missing dsh.bundle.patch');
+          if (!pkg.dsh?.client?.platform) throw new Error('missing dsh.client.platform');
+          if (pkg.exports['./client'] !== './client.js') throw new Error('missing ./client export');
+          for (const file of ['index.js', 'client.js', 'cordis.patch.yml', 'icon.svg']) {
+            if (!fs.existsSync(file)) throw new Error('missing ' + file);
+          }
+          for (const locale of ['zh', 'en']) {
+            const dict = JSON.parse(fs.readFileSync('locale/' + locale + '.json', 'utf8'));
+            if (!dict.meta?.title || !dict.meta?.description) throw new Error('locale ' + locale + ' needs meta.title/description');
+          }
+          const patch = fs.readFileSync('cordis.patch.yml', 'utf8');
+          if (!patch.includes(pkg.name)) throw new Error('patch does not reference ' + pkg.name);
+          const client = fs.readFileSync('client.js', 'utf8');
+          if (!client.includes(\"id: '\" + pkg.name + \"'\")) throw new Error('client module id must equal the package name');
+          console.log('manifests ok');
+          "
+      - name: Client module survives repeated evaluation
+        run: |
+          node -e "
+          const fs = require('fs');
+          const vm = require('vm');
+          const code = fs.readFileSync('client.js', 'utf8');
+          let loads = 0;
+          const sandbox = { window: { __ModuleLoader__: { load() { loads += 1; } }, localStorage: { getItem: () => null, setItem() {} } }, console, setTimeout, clearTimeout, setInterval, clearInterval };
+          sandbox.window.window = sandbox.window;
+          const context = vm.createContext(sandbox);
+          for (let i = 0; i < 3; i += 1) vm.runInContext(code, context);
+          if (loads !== 3) throw new Error('expected 3 module loads, got ' + loads);
+          console.log('repeated evaluation ok');
+          "
