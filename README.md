@@ -2,9 +2,9 @@
 
 给 [DeepSeek Harness](https://deepseek.com) 桌面端加一块**月视图日历看板**：每天要做的事、DSH 里设置的定时任务、点击日期格直接编辑，勾掉一条就放烟花。
 
-> 纯前端插件，无构建步骤、无第三方依赖、不上传任何数据。事项存在本机页面的 localStorage 里，定时任务只读。
+![日历看板截图](docs/preview.png)
 
-![icon](icon.svg)
+> 纯前端插件，无构建步骤、无第三方依赖、不上传任何数据。事项存在本机页面的 localStorage 里，定时任务只读。
 
 ## 功能
 
@@ -54,6 +54,14 @@ git clone https://github.com/jy007/dsh-calendar-board.git ~/plugins/dsh-calendar
 ```
 
 然后在 DSH 里让助手把 `~/plugins/dsh-calendar-board` 安装为 bundle，或在插件管理器里选择该本地目录。
+
+### 更新
+
+```bash
+cd dsh-calendar-board && git pull
+```
+
+然后在 DSH 里重新安装一次 `github:jy007/dsh-calendar-board`。插件安装的是**快照副本**，不会自动跟随仓库变化；面板右下角的 `vX.Y.Z` 就是当前运行版本。
 
 ### 卸载
 
@@ -110,6 +118,11 @@ dsh-calendar-board/
 A month-view calendar board plugin for DeepSeek Harness Desktop. It merges your daily notes with DSH scheduled reminders, lets you edit any day inline (changes save automatically), and celebrates each completed task with a chime, fireworks and confetti.
 
 Install: ask your DSH agent to `安装插件 github:jy007/dsh-calendar-board` (install the bundle `github:jy007/dsh-calendar-board`). Data stays in the page's localStorage; reminders are read-only from the `schedule` service. MIT licensed.
+
+## 更新日志
+
+- **1.0.1** — README 截图；面板版本号改为跟随包版本
+- **1.0.0** — 首个公开版本：月视图、内联编辑、完成/下划线/换色/删除、定时任务叠加、完成音效 + 烟花 + 彩带
 
 ## License
 

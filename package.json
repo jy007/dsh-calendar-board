@@ -1,6 +1,6 @@
 {
   "name": "dsh-calendar-board",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "type": "module",
   "description": "Month-view calendar board for DeepSeek Harness: daily tasks, scheduled reminders, inline day editing, and a celebration on completion.",
