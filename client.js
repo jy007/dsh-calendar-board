@@ -208,11 +208,13 @@ function occurrencesForDay(items, entries, key, t, options) {
   const tomorrowKey = dateKey(addDays(keyToDate(todayKey), 1));
   const isToday = key === todayKey;
   const isTomorrow = key === tomorrowKey;
-  const showSchedules = isToday || isTomorrow;
+  // The legend hides a whole layer; the today/tomorrow window is a second gate.
+  const showUser = opts.showUser !== false;
+  const showSchedules = (isToday || isTomorrow) && opts.showSchedule !== false;
   const date = keyToDate(key);
   const out = [];
 
-  for (const item of Array.isArray(items) ? items : []) {
+  for (const item of showUser && Array.isArray(items) ? items : []) {
     if (!item || !item.title) continue;
     const isDaily = item.repeat === 'daily';
     if (!isDaily && item.date !== key) continue;
@@ -1384,8 +1386,13 @@ window.__ModuleLoader__.load({
         const clockNow = useMemo(function () { return new Date(); }, [nowTick]);
         const todayKey = dateKey(clockNow);
         const occurrenceOptions = useMemo(function () {
-          return { now: clockNow, todayKey: todayKey };
-        }, [clockNow, todayKey]);
+          return {
+            now: clockNow,
+            todayKey: todayKey,
+            showUser: hidden.indexOf('local') < 0,
+            showSchedule: hidden.indexOf('schedule') < 0,
+          };
+        }, [clockNow, todayKey, hidden]);
 
         const grid = useMemo(function () {
           return days.map(function (day) {
@@ -1427,7 +1434,11 @@ window.__ModuleLoader__.load({
             const now = new Date();
             const key = dateKey(now);
             const clock = clockText(now);
-            const list = occurrencesForDay(items, schedule.entries, key, t, { now: now, todayKey: key });
+            const list = occurrencesForDay(items, schedule.entries, key, t, {
+              now: now,
+              todayKey: key,
+              showUser: hidden.indexOf('local') < 0,
+            });
             for (const entry of list) {
               if (entry.source !== 'user' || entry.done || !entry.time) continue;
               if (entry.time !== clock) continue;
