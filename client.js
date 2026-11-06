@@ -17,7 +17,7 @@
 // "Identifier 'STORE_KEY' has already been declared" on the second load.
 (function () {
 // #region helpers
-const BUILD_TAG = '1.1.1';
+const BUILD_TAG = '1.1.2';
 const STORE_KEY = 'dsh-calendar-board.items.v1';
 const NOTIFY_KEY = 'dsh-calendar-board.notify.v1';
 
@@ -1694,9 +1694,59 @@ window.__ModuleLoader__.load({
       }
     }
 
+    const MIGRATED_KEY = 'dsh-calendar-board.migrated.v1';
+
+    /** Hand a page's pre-1.1 entries to the Host store once, panel open or not. */
+    function migrateToHost() {
+      try {
+        if (window.localStorage.getItem(MIGRATED_KEY) === '1') return;
+      } catch (error) {
+        return;
+      }
+      if (typeof fetch !== 'function') return;
+      const mark = function () {
+        try { window.localStorage.setItem(MIGRATED_KEY, '1'); } catch (error) { /* ignore */ }
+      };
+      fetch('/calendar-board/items', { headers: { accept: 'application/json' } })
+        .then(function (response) {
+          if (!response || !response.ok) throw new Error('items route refused');
+          return response.json();
+        })
+        .then(function (payload) {
+          if (!payload || payload.ok !== true || !Array.isArray(payload.items)) throw new Error('items payload');
+          if (payload.items.length > 0) {
+            mark();
+            return undefined;
+          }
+          let local = [];
+          try {
+            local = JSON.parse(window.localStorage.getItem('dsh-calendar-board.items.v1') || '[]');
+          } catch (error) {
+            local = [];
+          }
+          const items = Array.isArray(local) ? local.map(normalizeClientItem).filter(Boolean) : [];
+          if (!items.length) {
+            mark();
+            return undefined;
+          }
+          return fetch('/calendar-board/items', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ items: items }),
+          }).then(function (response) {
+            if (!response || !response.ok) throw new Error('migration refused');
+            mark();
+          });
+        })
+        .catch(function () {
+          /* Host not reachable yet: try again on the next page load. */
+        });
+    }
+
     return {
       inject: ['slots'],
       apply(ctx) {
+        migrateToHost();
         const Board = createBoard(ctx);
 
         ctx.slots.inject('sidebar.panellist', function () {
