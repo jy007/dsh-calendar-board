@@ -581,7 +581,7 @@ function readBody(req, limit = 1024 * 1024) {
  * them, so an undeclared plugin silently registered nothing: no tool, no routes,
  * and the panel reported "scheduled reminders unavailable".
  */
-export const inject = ['tools', 'webServer', 'schedule'];
+export const inject = ['tools', 'schedule'];
 
 export function apply(ctx) {
   const api = {
@@ -671,12 +671,8 @@ export function apply(ctx) {
     }), 'calendar-board tool');
   }
 
-  const webServer = ctx.get('webServer');
-  if (!webServer || typeof webServer.register !== 'function') {
-    console.warn('[calendar-board] webServer service is not available: HTTP routes are disabled');
-    return;
-  }
-  ctx.effect(() => webServer.register({
+  function attachRoutes(owner, webServer) {
+  owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_ITEMS,
     handler: async (req, res) => {
@@ -705,7 +701,7 @@ export function apply(ctx) {
     },
   }), 'calendar-board items route');
 
-  ctx.effect(() => webServer.register({
+  owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_SOURCES,
     handler: async (req, res) => {
@@ -729,7 +725,7 @@ export function apply(ctx) {
     },
   }), 'calendar-board sources route');
 
-  ctx.effect(() => webServer.register({
+  owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_CALENDARS,
     handler: async (req, res) => {
@@ -742,7 +738,7 @@ export function apply(ctx) {
     },
   }), 'calendar-board calendars route');
 
-  ctx.effect(() => webServer.register({
+  owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_EVENTS,
     handler: async (req, res) => {
@@ -763,7 +759,7 @@ export function apply(ctx) {
   }), 'calendar-board events route');
 
   let schedules = { at: 0, entries: null };
-  ctx.effect(() => webServer.register({
+  owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_SCHEDULES,
     handler: async (req, res) => {
@@ -772,7 +768,7 @@ export function apply(ctx) {
         return;
       }
       try {
-        const schedule = ctx.get('schedule');
+        const schedule = owner.get('schedule') || ctx.get('schedule');
         if (!schedule || typeof schedule.catalog !== 'function') throw new Error('schedule service unavailable');
         const now = Date.now();
         if (!schedules.entries || now - schedules.at > SCHEDULE_CACHE_MS) {
@@ -785,4 +781,18 @@ export function apply(ctx) {
       }
     },
   }), 'calendar-board schedules route');
+  }
+
+  const direct = ctx.get('webServer');
+  if (direct && typeof direct.register === 'function') {
+    attachRoutes(ctx, direct);
+  } else if (typeof ctx.inject === 'function') {
+    ctx.inject(['webServer'], function (webCtx) {
+      const service = (webCtx && webCtx.webServer) || (webCtx && webCtx.get && webCtx.get('webServer'));
+      if (service && typeof service.register === 'function') attachRoutes(webCtx, service);
+      else console.warn('[calendar-board] webServer service is not available: HTTP routes are disabled');
+    });
+  } else {
+    console.warn('[calendar-board] webServer service is not available: HTTP routes are disabled');
+  }
 }
