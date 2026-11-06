@@ -17,7 +17,7 @@
 // "Identifier 'STORE_KEY' has already been declared" on the second load.
 (function () {
 // #region helpers
-const BUILD_TAG = '1.3.0';
+const BUILD_TAG = '1.4.0';
 const STORE_KEY = 'dsh-calendar-board.items.v1';
 const NOTIFY_KEY = 'dsh-calendar-board.notify.v1';
 
@@ -392,6 +392,12 @@ window.__ModuleLoader__.load({
         legendTitle: '日历来源',
         legendLocal: '我的事项',
         connectCalendar: '连接日历',
+        localCalendarsTitle: '本机日历（macOS）',
+        localCalendarsHint: '读取系统「日历」里已同步的日历，含 Google / 飞书 / Outlook 账号',
+        localCalendarsEmpty: '没有可用的本机日历，或未授予日历权限',
+        localCalendarsLoading: '正在读取本机日历…',
+        localAdd: '加到看板',
+        localRemove: '移除',
         connectTitle: '用 Google 账号授权，直接在日历里看到你的日程',
         connectedAs: function (account) { return '已连接 ' + account; },
         disconnect: '断开',
@@ -486,6 +492,12 @@ window.__ModuleLoader__.load({
         legendTitle: 'Calendars',
         legendLocal: 'My entries',
         connectCalendar: 'Connect',
+        localCalendarsTitle: 'This Mac (macOS)',
+        localCalendarsHint: 'Reads the calendars already synced into Calendar.app, including Google / Feishu / Outlook accounts',
+        localCalendarsEmpty: 'No local calendars, or calendar access was not granted',
+        localCalendarsLoading: 'Reading local calendars…',
+        localAdd: 'Add to board',
+        localRemove: 'Remove',
         connectTitle: 'Authorize with Google to see your calendars here',
         connectedAs: function (account) { return 'Connected: ' + account; },
         disconnect: 'Disconnect',
@@ -996,6 +1008,7 @@ window.__ModuleLoader__.load({
         const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
         const [oauthError, setOauthError] = useState('');
         const [oauthPending, setOauthPending] = useState(false);
+        const [localCals, setLocalCals] = useState({ loaded: false, error: '', items: [] });
         const [subError, setSubError] = useState('');
         const [feedTick, setFeedTick] = useState(0);
         const [schedule, setSchedule] = useState({ status: 'loading', entries: [], source: null });
@@ -1236,6 +1249,38 @@ window.__ModuleLoader__.load({
           const stop = setTimeout(function () { setOauthPending(false); }, 5 * 60 * 1000);
           return function () { clearInterval(timer); clearTimeout(stop); };
         }, [oauthPending]);
+
+        function loadLocalCalendars() {
+          fetch('/calendar-board/calendars?provider=local', { headers: { accept: 'application/json' } })
+            .then(function (response) { return response && response.ok ? response.json() : null; })
+            .then(function (payload) {
+              if (!payload || payload.ok !== true) throw new Error((payload && payload.error) || 'failed');
+              setLocalCals({ loaded: true, error: '', items: Array.isArray(payload.calendars) ? payload.calendars : [] });
+            })
+            .catch(function (error) {
+              setLocalCals({ loaded: true, error: String((error && error.message) || error), items: [] });
+            });
+        }
+
+        useEffect(function () {
+          if (connectOpen) loadLocalCalendars();
+        }, [connectOpen]);
+
+        function toggleLocalCalendar(item) {
+          const body = item.subscribed
+            ? { action: 'remove', id: item.sourceId }
+            : { action: 'add', provider: 'local', calendarId: item.id, color: 'green' };
+          fetch('/calendar-board/sources', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          })
+            .then(function () {
+              loadLocalCalendars();
+              setFeedTick(function (n) { return n + 1; });
+            })
+            .catch(function () {});
+        }
 
         function startOAuth() {
           const clientId = String(oauthForm.clientId || '').trim();
@@ -2048,7 +2093,25 @@ window.__ModuleLoader__.load({
                     disabled: oauthPending,
                   }, t('startAuth')),
                   oauthPending ? h('span', { className: 'dscb-hint' }, t('waitingAuth')) : null),
-              oauthError ? h('div', { className: 'dscb-hint' }, oauthError) : null)
+              oauthError ? h('div', { className: 'dscb-hint' }, oauthError) : null,
+              h('div', { className: 'dscb-hint', style: { marginTop: 6, fontWeight: 600 } }, t('localCalendarsTitle')),
+              h('div', { className: 'dscb-hint' }, t('localCalendarsHint')),
+              localCals.error
+                ? h('div', { className: 'dscb-hint' }, localCals.error)
+                : !localCals.loaded
+                  ? h('div', { className: 'dscb-hint' }, t('localCalendarsLoading'))
+                  : localCals.items.length === 0
+                    ? h('div', { className: 'dscb-hint' }, t('localCalendarsEmpty'))
+                    : h('div', { className: 'dscb-list' }, localCals.items.map(function (item) {
+                      return h('div', { key: item.id, className: 'dscb-task' },
+                        h('div', { className: 'dscb-task-main' },
+                          h('div', { className: 'dscb-task-title' }, item.name)),
+                        h('button', {
+                          type: 'button',
+                          className: 'dscb-btn' + (item.subscribed ? '' : ' dscb-btn-primary'),
+                          onClick: function () { toggleLocalCalendar(item); },
+                        }, item.subscribed ? t('localRemove') : t('localAdd')));
+                    })))
             : null,
           subForm
             ? h('form', {

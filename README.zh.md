@@ -24,6 +24,11 @@
 - 悬停行尾：`U` 下划线开关、`●` 循环换色（默认/红/橙/绿/蓝）、`×` 删除
 - 右侧当日面板按 `1. 2. 3.` 编号，带完成进度条
 
+**本机日历（零配置）**
+- macOS 上直接读系统「日历」：里面已经同步的 Google、飞书、Outlook 账号全都在，不需要注册应用、不需要粘贴任何地址
+- 点 **+ 连接日历** → 在「本机日历（macOS）」里勾选要显示的日历即可；首次读取会弹系统的「允许 DSH 控制日历」
+- 读取在后台进行并缓存，日历很大也不会卡住月视图
+
 **Google 日历授权登录**
 - 用你自己的 Google OAuth 客户端授权，之后直接读 `calendarList` 和 `events.list` —— 不用再复制私密 iCal 地址，token 自动刷新
 - 授权码 + PKCE，回环重定向 `http://127.0.0.1:19871/calendar-board/oauth/callback`，只申请只读 scope
@@ -67,6 +72,10 @@ git clone https://github.com/jy007/dsh-calendar-board.git ~/plugins/dsh-calendar
 ```
 
 然后在 DSH 里让助手把 `~/plugins/dsh-calendar-board` 安装为 bundle，或在插件管理器里选择该本地目录。
+
+### 使用本机已有的日历
+
+点 **+ 连接日历**，在「本机日历（macOS）」里勾选即可。首次读取会请求「允许 DSH 控制日历」（系统设置 → 隐私与安全性 → 自动化），允许一次就够了。
 
 ### 连接 Google 日历（OAuth）
 
@@ -122,7 +131,8 @@ Host 半是唯一的数据源，所以**任何 DSH 会话**都能通过一个工
 | `toggleSource` | `id`、`enabled` | 显示/隐藏某个来源 |
 | `accounts` | `provider` | 是否已连接、账号与日历列表 |
 | `connect` | `clientId`、`clientSecret` | 发起一次授权，返回要打开的 URL |
-| `calendars` | – | 已连接账号下的 Google 日历 |
+| `calendars` | `provider` | `google` 或 `local`（本机）可用的日历 |
+| `subscribe` | `provider`、`calendarId`、`color` | 订阅某个 Google 或本机日历 |
 | `disconnect` | `provider` | 清除 token 并移除该来源 |
 
 可以直接对助手说：
@@ -191,6 +201,7 @@ dsh-calendar-board/
 
 ## 更新日志
 
+- **1.4.0** — macOS 本机日历读取（走 Calendar.app，零 OAuth、零地址粘贴），连接面板里可选日历，后台读取并缓存
 - **1.3.0** — Google 日历授权登录：OAuth 2.0 + PKCE、回环重定向、token 刷新、`calendarList` + `events.list` 同步；工具新增 `connect` / `disconnect` / `accounts` / `calendars`
 - **1.2.0** — 日历订阅：iCal 源（Google / 飞书 / Outlook / Apple），按来源配色，图例可逐个开关；工具新增 `sources` / `events` / `subscribe` / `unsubscribe` / `toggleSource`
 - **1.1.2** — 迁移改为页面加载时就执行，不依赖打开日历面板

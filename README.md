@@ -24,6 +24,11 @@ A month-view calendar board for [DeepSeek Harness](https://deepseek.com) desktop
 - Hover the end of a row: `U` toggles underline, `●` cycles the text color (default / red / amber / green / blue), `×` deletes
 - The day panel numbers entries `1. 2. 3.` and shows a completion progress bar
 
+**This Mac's calendars (zero setup)**
+- On macOS the board reads Calendar.app through AppleScript — every calendar already synced there, Google and Feishu/Lark accounts included — so nothing has to be registered or pasted
+- Open **+ 连接日历**, pick the calendars to show, done. The first read raises the system Automation prompt for Calendar
+- Reads run in the background and are cached, so a big calendar never blocks the month view
+
 **Google Calendar sign-in (OAuth)**
 - Connect with your own Google OAuth client, then the board reads `calendarList` and `events.list` — no secret iCal address to copy, tokens refresh on their own
 - Authorization-code flow with PKCE, loopback redirect `http://127.0.0.1:19871/calendar-board/oauth/callback`, read-only scope
@@ -67,6 +72,10 @@ git clone https://github.com/jy007/dsh-calendar-board.git ~/plugins/dsh-calendar
 ```
 
 Then ask your DSH agent to install `~/plugins/dsh-calendar-board` as a bundle, or pick that directory in the plugin manager.
+
+### Use the calendars already on this Mac
+
+Click **+ 连接日历** and pick from the **本机日历（macOS）** list. The first read asks macOS to let DSH control *Calendar* (System Settings → Privacy & Security → Automation); allow it once.
 
 ### Connect Google Calendar (OAuth)
 
@@ -122,7 +131,8 @@ Every action answers with the same envelope: `{ "ok": true, ... }` — `list` ad
 | `toggleSource` | `id`, `enabled` | hide or show one source |
 | `accounts` | `provider` | whether a provider is connected, its account and calendars |
 | `connect` | `clientId`, `clientSecret` | start an OAuth attempt and return the URL to open |
-| `calendars` | – | the Google calendars of the connected account |
+| `calendars` | `provider` | the calendars available from `google` or `local` (this Mac) |
+| `subscribe` | `provider`, `calendarId`, `color` | follow one Google or local calendar |
 | `disconnect` | `provider` | forget the tokens and drop that provider's sources |
 
 Things you can simply say to your agent:
@@ -191,6 +201,7 @@ Edits to `client.js` hot-reload; edits to `index.js` (the Host half) need a DSH 
 
 ## Changelog
 
+- **1.4.0** — local calendar reading on macOS through Calendar.app (no OAuth client, no iCal address), with a picker in the connect panel and background caching
 - **1.3.0** — Google Calendar sign-in: OAuth 2.0 + PKCE with a loopback redirect, token refresh, `calendarList` + `events.list` sync, and `connect` / `disconnect` / `accounts` / `calendars` tool actions
 - **1.2.0** — calendar subscriptions: iCal feeds (Google / Feishu / Outlook / Apple) with per-source colors, a legend that toggles each source, and `sources` / `events` / `subscribe` / `unsubscribe` / `toggleSource` tool actions
 - **1.1.2** — the panel-independent migration runs on page load, so pre-1.1 localStorage entries reach the Host store without opening the panel

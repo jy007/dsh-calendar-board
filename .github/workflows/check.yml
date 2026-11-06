@@ -25,7 +25,7 @@ jobs:
           if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') throw new Error('missing dsh.bundle.patch');
           if (!pkg.dsh?.client?.platform) throw new Error('missing dsh.client.platform');
           if (pkg.exports['./client'] !== './client.js') throw new Error('missing ./client export');
-          for (const file of ['index.js', 'client.js', 'ics.js', 'google.js', 'oauth.js', 'cordis.patch.yml', 'icon.svg']) {
+          for (const file of ['index.js', 'client.js', 'ics.js', 'google.js', 'oauth.js', 'local.js', 'cordis.patch.yml', 'icon.svg']) {
             if (!fs.existsSync(file)) throw new Error('missing ' + file);
           }
           for (const locale of ['zh', 'en']) {
