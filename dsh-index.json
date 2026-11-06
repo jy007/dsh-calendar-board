@@ -1,0 +1,103 @@
+{
+  "format": 1,
+  "title": {
+    "en": "Calendar Board Plugins",
+    "zh": "日历看板插件源"
+  },
+  "description": {
+    "en": "Plugins published by jy007",
+    "zh": "jy007 发布的 DeepSeek Harness 插件"
+  },
+  "metadata": {
+    "categories": {
+      "productivity": {
+        "title": {
+          "en": "Productivity",
+          "zh": "效率"
+        }
+      },
+      "ui": {
+        "title": {
+          "en": "UI",
+          "zh": "界面"
+        }
+      }
+    },
+    "labels": {
+      "local-only": {
+        "title": {
+          "en": "Local only",
+          "zh": "纯本地"
+        }
+      },
+      "fs-write": {
+        "title": {
+          "en": "Writes files",
+          "zh": "写文件"
+        }
+      }
+    },
+    "sortKeys": {
+      "published": {
+        "title": {
+          "en": "Published",
+          "zh": "发布时间"
+        },
+        "order": "desc"
+      }
+    }
+  },
+  "plugins": [
+    {
+      "name": "dsh-calendar-board",
+      "title": {
+        "en": "Calendar Board",
+        "zh": "日历看板"
+      },
+      "description": {
+        "en": "Month calendar board for DSH: daily tasks, scheduled-reminder overlay, inline day editing, and a chime + fireworks when you finish something. Exposes a calendar_board tool so any session can read and edit the board.",
+        "zh": "DSH 的月视图日历看板：每日事项、定时任务叠加、点击日期格直接编辑，勾掉一条有音效与烟花。并暴露 calendar_board 工具，任何会话都能读写看板。"
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCIgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4IiByb2xlPSJpbWciIGFyaWEtbGFiZWw9IkNhbGVuZGFyIGJvYXJkIj4KICA8ZGVmcz4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0iZHNjYi1zaGVldCIgeDE9IjAiIHkxPSIwIiB4Mj0iMCIgeTI9IjEiPgogICAgICA8c3RvcCBvZmZzZXQ9IjAiIHN0b3AtY29sb3I9IiMzZjhlZjciLz4KICAgICAgPHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMmE2YWQ0Ii8+CiAgICA8L2xpbmVhckdyYWRpZW50PgogIDwvZGVmcz4KICA8cmVjdCB4PSI1IiB5PSI5IiB3aWR0aD0iMzgiIGhlaWdodD0iMzQiIHJ4PSI4IiBmaWxsPSJ1cmwoI2RzY2Itc2hlZXQpIi8+CiAgPHJlY3QgeD0iNSIgeT0iOSIgd2lkdGg9IjM4IiBoZWlnaHQ9IjEwIiByeD0iOCIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC4yMiIvPgogIDxyZWN0IHg9IjUiIHk9IjE2IiB3aWR0aD0iMzgiIGhlaWdodD0iMyIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC4zNSIvPgogIDxyZWN0IHg9IjEzIiB5PSI1IiB3aWR0aD0iNCIgaGVpZ2h0PSI4IiByeD0iMiIgZmlsbD0iI2U4ZjFmZiIvPgogIDxyZWN0IHg9IjMxIiB5PSI1IiB3aWR0aD0iNCIgaGVpZ2h0PSI4IiByeD0iMiIgZmlsbD0iI2U4ZjFmZiIvPgogIDxjaXJjbGUgY3g9IjE2IiBjeT0iMjYiIHI9IjIuNCIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC44NSIvPgogIDxjaXJjbGUgY3g9IjI0IiBjeT0iMjYiIHI9IjIuNCIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC44NSIvPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMjYiIHI9IjIuNCIgZmlsbD0iI2ZmZmZmZiIgb3BhY2l0eT0iMC41Ii8+CiAgPGNpcmNsZSBjeD0iMTYiIGN5PSIzNCIgcj0iMi40IiBmaWxsPSIjZmZmZmZmIiBvcGFjaXR5PSIwLjUiLz4KICA8Y2lyY2xlIGN4PSIyNCIgY3k9IjM0IiByPSIzLjQiIGZpbGw9IiNmZmQ3NmEiLz4KICA8Y2lyY2xlIGN4PSIzMiIgY3k9IjM0IiByPSIyLjQiIGZpbGw9IiNmZmZmZmYiIG9wYWNpdHk9IjAuNSIvPgo8L3N2Zz4K",
+      "author": "jy007",
+      "homepage": "https://github.com/jy007/dsh-calendar-board#readme",
+      "repository": {
+        "url": "https://github.com/jy007/dsh-calendar-board"
+      },
+      "metadata": {
+        "category": "productivity",
+        "labels": [
+          "local-only",
+          "fs-write"
+        ],
+        "keywords": [
+          "calendar",
+          "todo",
+          "reminders",
+          "agent-tool",
+          "农历"
+        ],
+        "sortKeys": {
+          "published": 1793934035
+        }
+      },
+      "dist-tags": {
+        "latest": "1.1.4"
+      },
+      "versions": [
+        {
+          "version": "1.1.4",
+          "publishTimestamp": 1793934035,
+          "source": {
+            "type": "git",
+            "url": "https://github.com/jy007/dsh-calendar-board",
+            "commit": "0275f1eb509e5bab625c04d751ea3bf3710a2e92"
+          },
+          "engines": {
+            "dsh": ">=0.2.1-rc.2"
+          }
+        }
+      ]
+    }
+  ]
+}
