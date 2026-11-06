@@ -163,8 +163,52 @@ function compareItems(left, right) {
   return String(left.title).localeCompare(String(right.title));
 }
 
-/** Every entry (user + scheduled) that belongs to one day, ordered by time. */
-function occurrencesForDay(items, entries, key, t) {
+const SCHEDULE_GRACE_MS = 90000;
+const DELIVERY_MATCH_MS = 5 * 60 * 1000;
+
+/** When one occurrence of a schedule is meant to fire. */
+function scheduleInstant(time, key, fallback) {
+  if (time && /^\d{2}:\d{2}$/.test(time)) {
+    const date = keyToDate(key);
+    date.setHours(Number(time.slice(0, 2)), Number(time.slice(3, 5)), 0, 0);
+    return date;
+  }
+  return fallback || keyToDate(key);
+}
+
+/**
+ * How one schedule occurrence stands right now:
+ *  done    – DSH already delivered it (or the one-shot ended)
+ *  expired – its time passed without a delivery
+ *  pending – still ahead
+ */
+function scheduleStateFor(entry, instant, now) {
+  const deliveredAt = entry.lastDelivery && entry.lastDelivery.scheduledAt
+    ? new Date(entry.lastDelivery.scheduledAt)
+    : null;
+  if (deliveredAt && !isNaN(deliveredAt.getTime()) && Math.abs(deliveredAt.getTime() - instant.getTime()) < DELIVERY_MATCH_MS) {
+    return 'done';
+  }
+  if (entry.status === 'inactive') return 'done';
+  if (instant.getTime() + SCHEDULE_GRACE_MS <= now.getTime()) return 'expired';
+  return 'pending';
+}
+
+/**
+ * Every entry (user + scheduled) that belongs to one day, ordered by time.
+ *
+ * Recurring schedules are only materialised for today and tomorrow: repeating a
+ * daily reminder across a whole month turns the grid into noise, so the rest of
+ * the month stays clean and the board shows what is actually actionable.
+ */
+function occurrencesForDay(items, entries, key, t, options) {
+  const opts = options || {};
+  const now = opts.now instanceof Date ? opts.now : new Date();
+  const todayKey = opts.todayKey || dateKey(now);
+  const tomorrowKey = dateKey(addDays(keyToDate(todayKey), 1));
+  const isToday = key === todayKey;
+  const isTomorrow = key === tomorrowKey;
+  const showSchedules = isToday || isTomorrow;
   const date = keyToDate(key);
   const out = [];
 
@@ -188,7 +232,10 @@ function occurrencesForDay(items, entries, key, t) {
   }
 
   for (const entry of Array.isArray(entries) ? entries : []) {
+    if (!showSchedules) break;
     if (!entry || !entry.title) continue;
+    // A schedule DSH has retired is history, not something to act on.
+    if (entry.status === 'inactive') continue;
     const status = entry.status === 'inactive' ? 'inactive' : 'active';
     const id = String(entry.id || entry.title);
     const base = {
@@ -199,20 +246,28 @@ function occurrencesForDay(items, entries, key, t) {
       status: status,
       rule: ruleLabel(entry, t),
     };
+    const push = function (time, instant) {
+      const state = scheduleStateFor(entry, instant, now);
+      out.push(Object.assign({}, base, {
+        key: base.id + ':' + key,
+        time: time || '',
+        state: state === 'pending' ? (isToday ? 'due' : 'next') : state,
+      }));
+    };
     if (entry.kind === 'daily') {
-      out.push(Object.assign({}, base, { key: base.id + ':' + key, time: entry.time || '' }));
+      push(entry.time || '', scheduleInstant(entry.time, key));
       continue;
     }
     if (entry.kind === 'weekly') {
       const weekdays = Array.isArray(entry.weekdays) ? entry.weekdays : [];
       if (weekdays.indexOf(isoDay(date)) < 0) continue;
-      out.push(Object.assign({}, base, { key: base.id + ':' + key, time: entry.time || '' }));
+      push(entry.time || '', scheduleInstant(entry.time, key));
       continue;
     }
     const when = entry.scheduledAt ? new Date(entry.scheduledAt) : null;
     if (!when || isNaN(when.getTime())) continue;
     if (dateKey(when) !== key) continue;
-    out.push(Object.assign({}, base, { key: base.id + ':' + key, time: clockText(when) }));
+    push(clockText(when), when);
   }
 
   out.sort(compareItems);
@@ -417,6 +472,10 @@ window.__ModuleLoader__.load({
         addSubscription: '添加',
         cancel: '取消',
         calendarTag: '订阅',
+        schedDue: '待运行',
+        schedNext: '明日',
+        schedDone: '已运行',
+        schedExpired: '已过期',
         calendarInline: function (count) { return '订阅日程 ' + count; },
         allDayLabel: '全天',
         colorNames: { blue: '蓝', green: '绿', amber: '橙', red: '红', gray: '灰' },
@@ -517,6 +576,10 @@ window.__ModuleLoader__.load({
         addSubscription: 'Add',
         cancel: 'Cancel',
         calendarTag: 'Feed',
+        schedDue: 'Due',
+        schedNext: 'Tomorrow',
+        schedDone: 'Ran',
+        schedExpired: 'Expired',
         calendarInline: function (count) { return count + ' calendar event' + (count === 1 ? '' : 's'); },
         allDayLabel: 'All day',
         colorNames: { blue: 'Blue', green: 'Green', amber: 'Amber', red: 'Red', gray: 'Gray' },
@@ -587,6 +650,19 @@ window.__ModuleLoader__.load({
       '.dscb-line.is-ended{opacity:.55;}',
       '.dscb-line-mark{width:5px;height:5px;border-radius:999px;flex:none;background:var(--dsw-alias-brand-primary);}',
       '.dscb-line.is-schedule .dscb-line-mark{border-radius:2px;background:var(--dsw-alias-state-warn-primary);}',
+      '.dscb-line.is-schedule.is-due{border-color:var(--dsw-alias-state-error-primary);}',
+      '.dscb-line.is-schedule.is-due .dscb-line-mark{background:var(--dsw-alias-state-error-primary);}',
+      '.dscb-line.is-schedule.is-due .dscb-line-title{color:var(--dsw-alias-state-error-primary);}',
+      '.dscb-line.is-schedule.is-next .dscb-line-mark{background:var(--dsw-alias-state-warn-primary);}',
+      '.dscb-line.is-schedule.is-next .dscb-line-title{color:var(--dsw-alias-state-warn-primary);}',
+      '.dscb-line.is-schedule.is-done,.dscb-line.is-schedule.is-expired{opacity:.45;}',
+      '.dscb-task.is-schedule.is-due{border-left:3px solid var(--dsw-alias-state-error-primary);}',
+      '.dscb-task.is-schedule.is-due .dscb-task-title{color:var(--dsw-alias-state-error-primary);}',
+      '.dscb-task.is-schedule.is-next{border-left:3px solid var(--dsw-alias-state-warn-primary);}',
+      '.dscb-task.is-schedule.is-next .dscb-task-title{color:var(--dsw-alias-state-warn-primary);}',
+      '.dscb-task.is-schedule.is-done,.dscb-task.is-schedule.is-expired{opacity:.55;}',
+      '.dscb-tag-due{background:var(--dsw-alias-state-error-primary);color:#fff;}',
+      '.dscb-tag-next{background:var(--dsw-alias-state-warn-primary);color:#fff;}',
       '.dscb-line-time{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;flex:none;}',
       '.dscb-line-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}',
       '.dscb-more{font-size:11px;color:var(--dsw-alias-label-secondary);padding-left:4px;}',
@@ -1011,6 +1087,7 @@ window.__ModuleLoader__.load({
         const [localCals, setLocalCals] = useState({ loaded: false, error: '', items: [] });
         const [subError, setSubError] = useState('');
         const [feedTick, setFeedTick] = useState(0);
+        const [nowTick, setNowTick] = useState(0);
         const [schedule, setSchedule] = useState({ status: 'loading', entries: [], source: null });
         const [notifyOn, setNotifyOn] = useState(readNotifyFlag);
         const [notice, setNotice] = useState('');
@@ -1040,6 +1117,11 @@ window.__ModuleLoader__.load({
         useEffect(function () {
           writeItems(items);
         }, [items]);
+
+        useEffect(function () {
+          const timer = setInterval(function () { setNowTick(function (n) { return n + 1; }); }, 30000);
+          return function () { clearInterval(timer); };
+        }, []);
 
         function pushToHost(list) {
           if (hostRef.current !== 'host') return;
@@ -1389,7 +1471,11 @@ window.__ModuleLoader__.load({
           return monthMatrix(view.year, view.month);
         }, [view.year, view.month]);
 
-        const todayKey = dateKey(new Date());
+        const clockNow = useMemo(function () { return new Date(); }, [nowTick]);
+        const todayKey = dateKey(clockNow);
+        const occurrenceOptions = useMemo(function () {
+          return { now: clockNow, todayKey: todayKey };
+        }, [clockNow, todayKey]);
 
         const grid = useMemo(function () {
           return days.map(function (day) {
@@ -1410,18 +1496,18 @@ window.__ModuleLoader__.load({
             return {
               date: day,
               key: key,
-              items: calendarItems.concat(occurrencesForDay(items, schedule.entries, key, t)),
+              items: calendarItems.concat(occurrencesForDay(items, schedule.entries, key, t, occurrenceOptions)),
             };
           });
-        }, [days, items, schedule.entries, externalByDay, localeTick]);
+        }, [days, items, schedule.entries, externalByDay, localeTick, occurrenceOptions]);
 
         const selectedItems = useMemo(function () {
-          return occurrencesForDay(items, schedule.entries, selected, t);
-        }, [items, schedule.entries, selected, localeTick]);
+          return occurrencesForDay(items, schedule.entries, selected, t, occurrenceOptions);
+        }, [items, schedule.entries, selected, localeTick, occurrenceOptions]);
 
         const todayItems = useMemo(function () {
-          return occurrencesForDay(items, schedule.entries, todayKey, t);
-        }, [items, schedule.entries, todayKey, localeTick]);
+          return occurrencesForDay(items, schedule.entries, todayKey, t, occurrenceOptions);
+        }, [items, schedule.entries, todayKey, localeTick, occurrenceOptions]);
 
         const selectedEvents = externalByDay.get(selected) || [];
 
@@ -1431,7 +1517,7 @@ window.__ModuleLoader__.load({
             const now = new Date();
             const key = dateKey(now);
             const clock = clockText(now);
-            const list = occurrencesForDay(items, schedule.entries, key, t);
+            const list = occurrencesForDay(items, schedule.entries, key, t, { now: now, todayKey: key });
             for (const entry of list) {
               if (entry.source !== 'user' || entry.done || !entry.time) continue;
               if (entry.time !== clock) continue;
@@ -1761,7 +1847,7 @@ window.__ModuleLoader__.load({
 
         function readOnlyLine(entry) {
           const lineClasses = ['dscb-line'];
-          if (entry.source === 'schedule') lineClasses.push('is-schedule');
+          if (entry.source === 'schedule') lineClasses.push('is-schedule', 'is-' + (entry.state || 'due'));
           if (entry.source === 'calendar') lineClasses.push('is-calendar', 'dscb-src-' + (entry.color || 'gray'));
           if (entry.done) lineClasses.push('is-done');
           if (entry.status === 'inactive') lineClasses.push('is-ended');
@@ -1906,12 +1992,19 @@ window.__ModuleLoader__.load({
           ? selectedItems.map(function (entry, index) {
             const isSchedule = entry.source === 'schedule';
             const taskClasses = ['dscb-task'];
-            if (isSchedule) taskClasses.push('is-schedule');
+            if (isSchedule) taskClasses.push('is-schedule', 'is-' + (entry.state || 'due'));
             if (entry.done) taskClasses.push('is-done');
             const meta = [];
             if (entry.time) meta.push(h('span', { key: 'time' }, entry.time));
             if (isSchedule) {
               meta.push(h('span', { key: 'tag', className: 'dscb-tag' }, t('scheduleTag')));
+              if (entry.state) {
+                const label = entry.state === 'due' ? t('schedDue')
+                  : entry.state === 'next' ? t('schedNext')
+                    : entry.state === 'done' ? t('schedDone')
+                      : t('schedExpired');
+                meta.push(h('span', { key: 'state', className: 'dscb-tag dscb-tag-' + entry.state }, label));
+              }
               if (entry.rule) meta.push(h('span', { key: 'rule' }, entry.rule));
               if (entry.status === 'inactive') {
                 meta.push(h('span', { key: 'status', className: 'dscb-tag' }, t('endedTag')));
