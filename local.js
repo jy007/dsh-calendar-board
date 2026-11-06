@@ -99,6 +99,7 @@ JSON.stringify(out)
   const raw = await runJxa(script);
   const rows = JSON.parse(raw || '[]');
   return rows.map((row) => ({
+    calendar: row.calendar,
     summary: row.summary,
     location: row.location || '',
     start: new Date(row.start),

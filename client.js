@@ -17,7 +17,7 @@
 // "Identifier 'STORE_KEY' has already been declared" on the second load.
 (function () {
 // #region helpers
-const BUILD_TAG = '1.4.0';
+const BUILD_TAG = '1.4.1';
 const STORE_KEY = 'dsh-calendar-board.items.v1';
 const NOTIFY_KEY = 'dsh-calendar-board.notify.v1';
 
@@ -1175,7 +1175,14 @@ window.__ModuleLoader__.load({
           const feeds = sources
             .filter(function (source) { return source.kind === 'ics'; })
             .map(function (source) {
-              return { id: source.id, kind: 'ics', color: source.color || 'green', name: source.name, error: source.lastError };
+              return {
+                id: source.id,
+                kind: 'ics',
+                color: source.color || 'green',
+                name: source.name,
+                error: source.lastError,
+                pending: source.pending === true,
+              };
             });
           return builtins.concat(feeds);
         }, [sources, localeTick]);
@@ -1707,7 +1714,7 @@ window.__ModuleLoader__.load({
               },
             },
             h('span', { className: 'dscb-source-dot' }),
-            h('span', null, source.name),
+            h('span', null, source.name + (source.pending ? ' …' : '')),
             source.kind === 'ics'
               ? h('span', {
                 className: 'dscb-source-x',

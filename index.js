@@ -313,6 +313,7 @@ function publicSource(source) {
     calendarId: source.calendarId || '',
     color: source.color,
     enabled: source.enabled !== false,
+    pending: source.kind === 'local' ? (!local || local[1].pending === true || localPending.size > 0) : false,
     lastSync: cached ? cached.at : (local ? local[1].at : null),
     lastError: cached ? cached.error : (local ? local[1].error : null),
     cachedEvents: cached ? cached.events.length : (local ? local[1].events.length : 0),
@@ -382,22 +383,51 @@ export async function setSourceEnabled(input = {}) {
 }
 
 /** Feed text of one source, cached for a few minutes so a month view is cheap. */
+function localWindowKey(calendarName, from, to) {
+  return calendarName + '|' + from.toISOString() + '|' + to.toISOString();
+}
+
+/**
+ * One Calendar.app query for every selected local calendar: launching the app and
+ * filtering per calendar is the expensive part, so the batch is shared.
+ */
+function prefetchLocal(names, from, to) {
+  const batchKey = names.slice().sort().join(',') + '|' + from.toISOString() + '|' + to.toISOString();
+  const batch = localBatches.get(batchKey);
+  const stamp = Date.now();
+  if (batch && stamp - batch.at < ICS_TTL_MS) return;
+  localBatches.set(batchKey, { at: stamp });
+
+  const markAll = (events, error) => {
+    const at = Date.now();
+    for (const name of names) {
+      const key = localWindowKey(name, from, to);
+      const mine = error ? [] : events.filter((event) => event.calendar === name);
+      localCache.set(key, { at, events: mine, error: error || null, pending: false });
+      localPending.delete(key);
+    }
+  };
+  for (const name of names) localPending.add(localWindowKey(name, from, to));
+
+  readLocalEvents(names, from, to)
+    .then((events) => markAll(events, null))
+    .catch((error) => {
+      localBatches.delete(batchKey);
+      markAll([], String((error && error.message) || error));
+    });
+}
+
 async function loadFeed(source, from, to) {
   if (source.kind === 'local') {
     if (!localSupported()) return { at: Date.now(), events: [], error: 'local calendars are only available on macOS', pending: false };
-    const key = source.calendarId + '|' + from.toISOString() + '|' + to.toISOString();
+    const key = localWindowKey(source.calendarId, from, to);
     const hit = localCache.get(key);
     const stamp = Date.now();
     const ttl = hit && hit.error ? 60000 : ICS_TTL_MS;
     if (hit && stamp - hit.at < ttl && !localPending.has(key)) return hit;
-    if (!localPending.has(key)) {
-      localPending.add(key);
-      readLocalEvents([source.calendarId], from, to)
-        .then((events) => { localCache.set(key, { at: Date.now(), events, error: null, pending: false }); })
-        .catch((error) => { localCache.set(key, { at: Date.now(), events: hit ? hit.events : [], error: String((error && error.message) || error), pending: false }); })
-        .finally(() => { localPending.delete(key); });
-    }
-    if (hit) return Object.assign({}, hit, { pending: true });
+    if (!hit || stamp - hit.at >= ttl) prefetchLocal([source.calendarId], from, to);
+    const latest = localCache.get(key);
+    if (latest) return Object.assign({}, latest, { pending: localPending.has(key) });
     return { at: 0, events: [], error: null, pending: true };
   }
 
@@ -464,6 +494,15 @@ export async function listCalendarEvents(input = {}) {
   const { from, to } = windowBounds(input);
   const store = await readSources();
   const feeds = store.sources.filter((source) => source.enabled !== false);
+  const localNames = feeds.filter((source) => source.kind === 'local').map((source) => source.calendarId);
+  if (localNames.length && localSupported()) {
+    const fresh = localNames.some((name) => {
+      const hit = localCache.get(localWindowKey(name, from, to));
+      const ttl = hit && hit.error ? 60000 : ICS_TTL_MS;
+      return !hit || Date.now() - hit.at >= ttl;
+    });
+    if (fresh) prefetchLocal(localNames, from, to);
+  }
   const events = [];
   const status = [];
   await Promise.all(feeds.map(async (source) => {
@@ -496,6 +535,7 @@ const tokenStore = createTokenStore({ dir: STORE_DIR, credentials: null });
 const googleCache = new Map();
 const localCache = new Map();
 const localPending = new Set();
+const localBatches = new Map();
 let attempt = null;
 
 /** Wire the credential store once apply() has the context. */
