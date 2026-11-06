@@ -90,6 +90,8 @@ The Host half is the canonical store, so **every DSH session** can read and edit
 | action | arguments | meaning |
 | --- | --- | --- |
 | `list` | `date` or `from`/`to`, `includeDone` | entries with `id`, `date`, `time`, `title`, `done`, `repeat`, `color` |
+
+Every action answers with the same envelope: `{ "ok": true, ... }` — `list` adds `today`, `count` and `items`; the others return the touched `item` or `removed`.
 | `add` | `title`, optional `date` (defaults to today), `time`, `repeat:"daily"` | create an entry |
 | `update` | `id` + any of `title`/`date`/`time`/`repeat`/`color`/`underline` | edit in place |
 | `complete` | `id`, optional `date`, `done` | tick or untick one day of one entry |

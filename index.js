@@ -151,7 +151,7 @@ export async function listItems(query = {}) {
     .map((item) => view(item, single || undefined))
     .filter((row) => includeDone || !row.done);
 
-  return { today: clockToday(), count: rows.length, items: rows };
+  return { ok: true, today: clockToday(), count: rows.length, items: rows };
 }
 
 /** Raw store rows for the panel: same shape it writes back, no derived fields. */

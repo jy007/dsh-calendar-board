@@ -90,6 +90,8 @@ Host 半是唯一的数据源，所以**任何 DSH 会话**都能通过一个工
 | action | 参数 | 说明 |
 | --- | --- | --- |
 | `list` | `date` 或 `from`/`to`、`includeDone` | 返回 `id`、`date`、`time`、`title`、`done`、`repeat`、`color` |
+
+所有 action 统一返回 `{ "ok": true, ... }`：`list` 额外带 `today`、`count`、`items`，其余返回被改动的 `item` 或 `removed`。
 | `add` | `title`，可选 `date`（默认今天）、`time`、`repeat:"daily"` | 新增一条 |
 | `update` | `id` + `title`/`date`/`time`/`repeat`/`color`/`underline` 任意项 | 原地修改 |
 | `complete` | `id`，可选 `date`、`done` | 勾选/取消某一条的某一天 |
