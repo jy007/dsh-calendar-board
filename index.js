@@ -581,7 +581,7 @@ function readBody(req, limit = 1024 * 1024) {
  * them, so an undeclared plugin silently registered nothing: no tool, no routes,
  * and the panel reported "scheduled reminders unavailable".
  */
-export const inject = ['tools'];
+export const inject = ['tools', 'webServer'];
 
 export function apply(ctx) {
   const api = {
