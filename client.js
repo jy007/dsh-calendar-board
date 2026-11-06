@@ -17,7 +17,7 @@
 // "Identifier 'STORE_KEY' has already been declared" on the second load.
 (function () {
 // #region helpers
-const BUILD_TAG = '1.2.1';
+const BUILD_TAG = '1.3.0';
 const STORE_KEY = 'dsh-calendar-board.items.v1';
 const NOTIFY_KEY = 'dsh-calendar-board.notify.v1';
 
@@ -391,6 +391,17 @@ window.__ModuleLoader__.load({
         scheduleInline: function (count) { return '定时任务 ' + count; },
         legendTitle: '日历来源',
         legendLocal: '我的事项',
+        connectCalendar: '连接日历',
+        connectTitle: '用 Google 账号授权，直接在日历里看到你的日程',
+        connectedAs: function (account) { return '已连接 ' + account; },
+        disconnect: '断开',
+        clientIdLabel: 'OAuth 客户端 ID',
+        clientSecretLabel: 'OAuth 客户端密钥',
+        redirectHint: '在 Google Cloud Console 的 OAuth 客户端里把这个重定向地址填进去：',
+        startAuth: '开始授权',
+        waitingAuth: '等待浏览器授权…',
+        authFailed: '授权失败',
+        clientIdRequired: '先填入 OAuth 客户端 ID',
         legendSchedule: '定时任务',
         subscribe: '订阅日历',
         subscribeTitle: '添加 iCal 订阅（Google / 飞书 / Outlook 的“私密 iCal 地址”）',
@@ -474,6 +485,17 @@ window.__ModuleLoader__.load({
         scheduleInline: function (count) { return count + ' scheduled'; },
         legendTitle: 'Calendars',
         legendLocal: 'My entries',
+        connectCalendar: 'Connect',
+        connectTitle: 'Authorize with Google to see your calendars here',
+        connectedAs: function (account) { return 'Connected: ' + account; },
+        disconnect: 'Disconnect',
+        clientIdLabel: 'OAuth client ID',
+        clientSecretLabel: 'OAuth client secret',
+        redirectHint: 'Add this redirect URI to your OAuth client in Google Cloud Console:',
+        startAuth: 'Authorize',
+        waitingAuth: 'Waiting for the browser…',
+        authFailed: 'Authorization failed',
+        clientIdRequired: 'Enter the OAuth client ID first',
         legendSchedule: 'Scheduled',
         subscribe: 'Subscribe',
         subscribeTitle: 'Add an iCal subscription (the secret iCal address from Google / Feishu / Outlook)',
@@ -969,6 +991,11 @@ window.__ModuleLoader__.load({
         const [external, setExternal] = useState([]);
         const [hidden, setHidden] = useState(readHiddenSources);
         const [subForm, setSubForm] = useState(null);
+        const [connectOpen, setConnectOpen] = useState(false);
+        const [oauth, setOauth] = useState({ status: 'unknown', account: '', hasClientId: false, redirectUri: '' });
+        const [oauthForm, setOauthForm] = useState({ clientId: '', clientSecret: '' });
+        const [oauthError, setOauthError] = useState('');
+        const [oauthPending, setOauthPending] = useState(false);
         const [subError, setSubError] = useState('');
         const [feedTick, setFeedTick] = useState(0);
         const [schedule, setSchedule] = useState({ status: 'loading', entries: [], source: null });
@@ -1176,6 +1203,75 @@ window.__ModuleLoader__.load({
             .catch(function (error) {
               setSubError(t('subscribeFailed') + ': ' + String((error && error.message) || error));
             });
+        }
+
+        function refreshOAuth() {
+          if (typeof fetch !== 'function') return;
+          fetch('/calendar-board/oauth?provider=google', { headers: { accept: 'application/json' } })
+            .then(function (response) { return response && response.ok ? response.json() : null; })
+            .then(function (payload) {
+              if (!payload || payload.ok !== true) return;
+              const connected = payload.connected === true;
+              setOauth({
+                status: connected ? 'connected' : payload.pending ? 'pending' : 'disconnected',
+                account: payload.account || '',
+                hasClientId: payload.hasClientId === true,
+                redirectUri: payload.redirectUri || '',
+              });
+              if (connected) {
+                setOauthPending(false);
+                setFeedTick(function (n) { return n + 1; });
+              }
+            })
+            .catch(function () {});
+        }
+
+        useEffect(function () {
+          refreshOAuth();
+        }, []);
+
+        useEffect(function () {
+          if (!oauthPending) return undefined;
+          const timer = setInterval(refreshOAuth, 2000);
+          const stop = setTimeout(function () { setOauthPending(false); }, 5 * 60 * 1000);
+          return function () { clearInterval(timer); clearTimeout(stop); };
+        }, [oauthPending]);
+
+        function startOAuth() {
+          const clientId = String(oauthForm.clientId || '').trim();
+          if (!clientId && !oauth.hasClientId) {
+            setOauthError(t('clientIdRequired'));
+            return;
+          }
+          fetch('/calendar-board/oauth/start', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ provider: 'google', clientId: clientId, clientSecret: oauthForm.clientSecret || '' }),
+          })
+            .then(function (response) { return response.json(); })
+            .then(function (payload) {
+              if (!payload || payload.ok !== true) throw new Error((payload && payload.error) || 'refused');
+              setOauthError('');
+              setOauthPending(true);
+              try { window.open(payload.url, '_blank'); } catch (error) { /* the URL is also shown below */ }
+            })
+            .catch(function (error) {
+              setOauthPending(false);
+              setOauthError(t('authFailed') + ': ' + String((error && error.message) || error));
+            });
+        }
+
+        function disconnectOAuth() {
+          fetch('/calendar-board/oauth/disconnect', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ provider: 'google' }),
+          })
+            .then(function () {
+              setOauth({ status: 'disconnected', account: '', hasClientId: oauth.hasClientId, redirectUri: oauth.redirectUri });
+              setFeedTick(function (n) { return n + 1; });
+            })
+            .catch(function () {});
         }
 
         function unsubscribeSource(id) {
@@ -1589,7 +1685,18 @@ window.__ModuleLoader__.load({
               setSubForm(subForm ? null : { name: '', url: '', color: 'green' });
               setSubError('');
             },
-          }, '+ ' + t('subscribe')));
+          }, '+ ' + t('subscribe')),
+          h('button', {
+            type: 'button',
+            className: 'dscb-source-add',
+            title: t('connectTitle'),
+            onClick: function () {
+              setConnectOpen(!connectOpen);
+              setOauthError('');
+            },
+          }, oauth.status === 'connected'
+            ? '● ' + t('connectedAs', oauth.account || 'Google')
+            : '+ ' + t('connectCalendar')));
 
         const weekHead = h('div', { className: 'dscb-weekrow' },
           h('div', { className: 'dscb-weekhead', 'aria-hidden': true }, t('weekNumber')),
@@ -1887,6 +1994,62 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dscb-progress' }, h('span', { style: { width: progress + '%' } })),
             h('div', { className: 'dscb-progress-text' }, t('taskDone', selectedDone, selectedItems.length)),
             selected === todayKey ? null : h('div', { className: 'dscb-progress-text' }, t('todayLine', doneCount, totalCount))),
+          connectOpen
+            ? h('div', { className: 'dscb-sub-form' },
+              oauth.status === 'connected'
+                ? h('div', { className: 'dscb-sub-row' },
+                  h('span', { className: 'dscb-hint' }, '● ' + t('connectedAs', oauth.account || 'Google')),
+                  h('button', {
+                    type: 'button',
+                    className: 'dscb-btn',
+                    style: { marginLeft: 'auto' },
+                    onClick: disconnectOAuth,
+                  }, t('disconnect')))
+                : h('div', { className: 'dscb-sub-row' },
+                  h('input', {
+                    className: 'dscb-input',
+                    placeholder: t('clientIdLabel'),
+                    value: oauthForm.clientId,
+                    'aria-label': t('clientIdLabel'),
+                    onChange: function (event) {
+                      const value = event.target.value;
+                      setOauthForm(function (prev) { return Object.assign({}, prev, { clientId: value }); });
+                    },
+                  })),
+              oauth.status === 'connected'
+                ? null
+                : h('input', {
+                  className: 'dscb-input',
+                  type: 'password',
+                  placeholder: t('clientSecretLabel'),
+                  value: oauthForm.clientSecret,
+                  'aria-label': t('clientSecretLabel'),
+                  onChange: function (event) {
+                    const value = event.target.value;
+                    setOauthForm(function (prev) { return Object.assign({}, prev, { clientSecret: value }); });
+                  },
+                }),
+              oauth.status === 'connected'
+                ? null
+                : h('div', { className: 'dscb-hint' }, t('redirectHint')),
+              oauth.status === 'connected'
+                ? null
+                : h('code', {
+                  className: 'dscb-hint',
+                  style: { userSelect: 'all', wordBreak: 'break-all' },
+                }, oauth.redirectUri || 'http://127.0.0.1:19871/calendar-board/oauth/callback'),
+              oauth.status === 'connected'
+                ? null
+                : h('div', { className: 'dscb-sub-row' },
+                  h('button', {
+                    type: 'button',
+                    className: 'dscb-btn dscb-btn-primary',
+                    onClick: startOAuth,
+                    disabled: oauthPending,
+                  }, t('startAuth')),
+                  oauthPending ? h('span', { className: 'dscb-hint' }, t('waitingAuth')) : null),
+              oauthError ? h('div', { className: 'dscb-hint' }, oauthError) : null)
+            : null,
           subForm
             ? h('form', {
               className: 'dscb-sub-form',

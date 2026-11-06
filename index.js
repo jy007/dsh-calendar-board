@@ -15,12 +15,15 @@
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { eventsByDay, parseIcs } from './ics.js';
+import { REDIRECT_URI, PROVIDERS, beginAttempt, createTokenStore, refreshAccessToken } from './oauth.js';
+import { listCalendars, listCalendarEvents as listGoogleEvents } from './google.js';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
 const ROUTE_ITEMS = '/calendar-board/items';
 const ROUTE_SOURCES = '/calendar-board/sources';
 const ROUTE_EVENTS = '/calendar-board/events';
+const ROUTE_OAUTH = '/calendar-board/oauth';
 const ROUTE_SCHEDULES = '/calendar-board/schedules';
 const SCHEDULE_CACHE_MS = 10000;
 
@@ -298,9 +301,11 @@ function publicSource(source) {
   const cached = icsCache.get(source.id);
   return {
     id: source.id,
-    kind: 'ics',
+    kind: source.kind || 'ics',
     name: source.name,
-    url: source.url,
+    url: source.url || '',
+    provider: source.provider || '',
+    calendarId: source.calendarId || '',
     color: source.color,
     enabled: source.enabled !== false,
     lastSync: cached ? cached.at : null,
@@ -315,6 +320,14 @@ export async function listSources() {
 }
 
 export async function addSource(input = {}) {
+  if (String(input.provider || input.kind || '') === 'google') {
+    const record = await tokenStore.read('google');
+    if (!record || !record.refreshToken) throw new Error('not connected to Google: authorize it first');
+    const calendarId = String(input.calendarId || 'primary');
+    const known = (record.calendars || []).find((calendar) => calendar.id === calendarId);
+    const source = await ensureGoogleSource(calendarId, input.name || (known && known.name) || 'Google', input.color);
+    return { ok: true, source: publicSource(source) };
+  }
   const store = await readSources();
   const url = normalizeFeedUrl(input.url);
   if (store.sources.some((source) => source.url === url)) throw new Error('that calendar is already subscribed');
@@ -353,7 +366,29 @@ export async function setSourceEnabled(input = {}) {
 }
 
 /** Feed text of one source, cached for a few minutes so a month view is cheap. */
-async function loadFeed(source) {
+async function loadFeed(source, from, to) {
+  if (source.kind === 'google') {
+    const key = source.id + '|' + from.toISOString() + '|' + to.toISOString();
+    const hit = googleCache.get(key);
+    const stamp = Date.now();
+    if (hit && stamp - hit.at < ICS_TTL_MS) return hit;
+    try {
+      const { provider, token } = await accessTokenFor(source.provider || 'google');
+      const events = await listGoogleEvents(provider, token, {
+        calendarId: source.calendarId || 'primary',
+        timeMin: from,
+        timeMax: to,
+      });
+      const entry = { at: stamp, events, error: null };
+      googleCache.set(key, entry);
+      return entry;
+    } catch (error) {
+      const entry = { at: stamp, events: hit ? hit.events : [], error: String((error && error.message) || error) };
+      googleCache.set(key, entry);
+      return entry;
+    }
+  }
+
   const cached = icsCache.get(source.id);
   const now = Date.now();
   if (cached && now - cached.at < ICS_TTL_MS) return cached;
@@ -398,7 +433,7 @@ export async function listCalendarEvents(input = {}) {
   const events = [];
   const status = [];
   await Promise.all(feeds.map(async (source) => {
-    const feed = await loadFeed(source);
+    const feed = await loadFeed(source, from, to);
     const byDay = eventsByDay(feed.events, from, to);
     let occurrences = 0;
     for (const list of byDay.values()) occurrences += list.length;
@@ -411,6 +446,162 @@ export async function listCalendarEvents(input = {}) {
   }));
   events.sort((a, b) => (a.date === b.date ? (a.time || '00:00').localeCompare(b.time || '00:00') : a.date.localeCompare(b.date)));
   return { ok: true, from: from.toISOString(), to: to.toISOString(), sources: status, events };
+}
+
+/* ---------------------------------------------------------------- accounts */
+
+const tokenStore = createTokenStore({ dir: STORE_DIR, credentials: null });
+const googleCache = new Map();
+let attempt = null;
+
+/** Wire the credential store once apply() has the context. */
+export function bindCredentials(ctx) {
+  const credentials = ctx.get('credentials');
+  tokenStore.credentials = credentials && typeof credentials.readRecord === 'function' ? credentials : null;
+}
+
+function readEnvClient(provider) {
+  return {
+    clientId: String(process.env[provider.clientIdEnv] || '').trim(),
+    clientSecret: String(process.env[provider.clientSecretEnv] || '').trim(),
+  };
+}
+
+async function providerClient(providerId) {
+  const provider = PROVIDERS[providerId];
+  if (!provider) throw new Error('unknown provider ' + providerId);
+  const record = await tokenStore.read(providerId);
+  const env = readEnvClient(provider);
+  return {
+    provider,
+    record,
+    clientId: (record && record.clientId) || env.clientId,
+    clientSecret: (record && record.clientSecret) || env.clientSecret,
+  };
+}
+
+/** Valid access token, refreshing and persisting when it is about to expire. */
+async function accessTokenFor(providerId) {
+  const { provider, record, clientId, clientSecret } = await providerClient(providerId);
+  if (!record || !record.refreshToken) throw new Error('not connected: authorize ' + providerId + ' first');
+  if (!clientId) throw new Error('missing client id for ' + providerId);
+  if (record.accessToken && record.expiresAt && record.expiresAt - Date.now() > 60000) {
+    return { provider, token: record.accessToken, record };
+  }
+  const fresh = await refreshAccessToken(provider, record, { clientId, clientSecret });
+  const next = Object.assign({}, record, fresh);
+  await tokenStore.write(providerId, next);
+  return { provider, token: fresh.accessToken, record: next };
+}
+
+async function ensureGoogleSource(calendarId, name, color) {
+  const store = await readSources();
+  const existing = store.sources.find((source) => source.kind === 'google' && source.calendarId === calendarId);
+  if (existing) return existing;
+  const source = {
+    id: 'src' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    kind: 'google',
+    provider: 'google',
+    calendarId,
+    name: name || 'Google 日历',
+    color: SOURCE_COLORS.includes(color) ? color : 'green',
+    enabled: true,
+  };
+  await persistSources({ version: 1, sources: store.sources.concat([source]) });
+  return source;
+}
+
+export async function startOAuth(input = {}) {
+  const providerId = String(input.provider || 'google');
+  const provider = PROVIDERS[providerId];
+  if (!provider) throw new Error('unknown provider ' + providerId);
+  if (attempt) {
+    attempt.close();
+    attempt = null;
+  }
+  const stored = await tokenStore.read(providerId);
+  const env = readEnvClient(provider);
+  const clientId = String(input.clientId || (stored && stored.clientId) || env.clientId || '').trim();
+  const clientSecret = String(input.clientSecret || (stored && stored.clientSecret) || env.clientSecret || '').trim();
+  if (!clientId) throw new Error('client id is required');
+
+  const current = beginAttempt(provider, { clientId, clientSecret });
+  attempt = current;
+  current.exchange().then(async (tokens) => {
+    let calendars = [];
+    try {
+      calendars = await listCalendars(provider, tokens.accessToken);
+    } catch (error) {
+      calendars = [];
+    }
+    const primary = calendars.find((calendar) => calendar.primary) || calendars[0] || null;
+    await tokenStore.write(providerId, Object.assign({
+      provider: providerId,
+      clientId,
+      clientSecret,
+    }, tokens, {
+      account: primary ? primary.name : '',
+      calendars: calendars.map((calendar) => ({ id: calendar.id, name: calendar.name, primary: calendar.primary })),
+    }));
+    await ensureGoogleSource(primary ? primary.id : 'primary', primary ? primary.name : 'Google');
+    if (attempt === current) attempt = null;
+  }).catch((error) => {
+    console.warn('[calendar-board] oauth attempt failed:', error && error.message);
+    if (attempt === current) attempt = null;
+  });
+
+  return { ok: true, provider: providerId, url: current.url, redirectUri: REDIRECT_URI };
+}
+
+export async function oauthStatus(input = {}) {
+  const providerId = String(input.provider || 'google');
+  const provider = PROVIDERS[providerId];
+  if (!provider) throw new Error('unknown provider ' + providerId);
+  const stored = await tokenStore.read(providerId);
+  const env = readEnvClient(provider);
+  return {
+    ok: true,
+    provider: providerId,
+    connected: Boolean(stored && stored.refreshToken),
+    pending: Boolean(attempt),
+    hasClientId: Boolean((stored && stored.clientId) || env.clientId),
+    account: (stored && stored.account) || '',
+    calendars: (stored && stored.calendars) || [],
+    redirectUri: REDIRECT_URI,
+  };
+}
+
+export async function disconnectProvider(input = {}) {
+  const providerId = String(input.provider || 'google');
+  const provider = PROVIDERS[providerId];
+  if (!provider) throw new Error('unknown provider ' + providerId);
+  if (attempt) {
+    attempt.close();
+    attempt = null;
+  }
+  await tokenStore.remove(providerId);
+  googleCache.clear();
+  const store = await readSources();
+  const next = store.sources.filter((source) => !(source.kind === 'google' && (source.provider || 'google') === providerId));
+  await persistSources({ version: 1, sources: next });
+  return { ok: true, provider: providerId, removedSources: store.sources.length - next.length };
+}
+
+export async function listGoogleCalendars() {
+  const { provider, token, record } = await accessTokenFor('google');
+  const calendars = await listCalendars(provider, token);
+  const store = await readSources();
+  const subscribed = new Set(store.sources.filter((source) => source.kind === 'google').map((source) => source.calendarId));
+  return {
+    ok: true,
+    account: (record && record.account) || '',
+    calendars: calendars.map((calendar) => ({
+      id: calendar.id,
+      name: calendar.name,
+      primary: calendar.primary,
+      subscribed: subscribed.has(calendar.id),
+    })),
+  };
 }
 
 /* ------------------------------------------------------------------- HTTP */
@@ -446,7 +637,13 @@ function readBody(req, limit = 1024 * 1024) {
 /* ------------------------------------------------------------------ apply */
 
 export function apply(ctx) {
-  const api = { listItems, addItem, updateItem, setDone, removeItem, replaceItems };
+  bindCredentials(ctx);
+
+  const api = {
+    listItems, addItem, updateItem, setDone, removeItem, replaceItems,
+    listSources, addSource, removeSource, setSourceEnabled,
+    listCalendarEvents, startOAuth, oauthStatus, disconnectProvider, listGoogleCalendars,
+  };
   try {
     ctx.effect(() => ctx.provide('calendarBoard', api), 'calendar-board service');
   } catch (error) {
@@ -468,7 +665,7 @@ export function apply(ctx) {
         properties: {
           action: {
             type: 'string',
-            enum: ['list', 'add', 'update', 'complete', 'remove', 'sources', 'events', 'subscribe', 'unsubscribe', 'toggleSource'],
+            enum: ['list', 'add', 'update', 'complete', 'remove', 'sources', 'events', 'subscribe', 'unsubscribe', 'toggleSource', 'accounts', 'calendars', 'connect', 'disconnect'],
             description: 'Operation to perform.',
           },
           date: { type: 'string', description: 'YYYY-MM-DD. list: one day. add: defaults to today. complete: defaults to the item date.' },
@@ -485,6 +682,10 @@ export function apply(ctx) {
           url: { type: 'string', description: 'subscribe only: the http(s) iCal address (webcal:// is accepted and rewritten).' },
           name: { type: 'string', description: 'subscribe only: a short label for the calendar; defaults to its host.' },
           enabled: { type: 'boolean', description: 'toggleSource only: show or hide the subscription (default true).' },
+          provider: { type: 'string', enum: ['google'], description: 'subscribe/accounts/calendars/connect/disconnect: calendar provider.' },
+          calendarId: { type: 'string', description: 'subscribe only (Google): the calendar id to follow, "primary" for the main calendar.' },
+          clientId: { type: 'string', description: 'connect only: the OAuth client id registered for the provider.' },
+          clientSecret: { type: 'string', description: 'connect only: the OAuth client secret (not needed by every provider).' },
         },
         required: ['action'],
         additionalProperties: false,
@@ -518,6 +719,14 @@ export function apply(ctx) {
             return removeSource(input);
           case 'toggleSource':
             return setSourceEnabled(input);
+          case 'accounts':
+            return oauthStatus(input);
+          case 'calendars':
+            return listGoogleCalendars();
+          case 'connect':
+            return startOAuth(input);
+          case 'disconnect':
+            return disconnectProvider(input);
           default:
             throw new Error('unknown action: ' + String(input.action));
         }
@@ -580,6 +789,31 @@ export function apply(ctx) {
       }
     },
   }), 'calendar-board sources route');
+
+  ctx.effect(() => webServer.register({
+    kind: 'prefix',
+    path: ROUTE_OAUTH,
+    handler: async (req, res) => {
+      try {
+        const url = new URL(req.url || '/', 'http://127.0.0.1');
+        const action = url.pathname.slice(ROUTE_OAUTH.length + 1) || 'status';
+        if (req.method === 'GET') {
+          sendJson(res, 200, await oauthStatus({ provider: url.searchParams.get('provider') || 'google' }));
+          return;
+        }
+        if (req.method === 'POST') {
+          const payload = JSON.parse((await readBody(req)) || '{}');
+          if (action === 'start') sendJson(res, 200, await startOAuth(payload));
+          else if (action === 'disconnect') sendJson(res, 200, await disconnectProvider(payload));
+          else sendJson(res, 400, { ok: false, error: 'unknown oauth action' });
+          return;
+        }
+        sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: String((error && error.message) || error) });
+      }
+    },
+  }), 'calendar-board oauth route');
 
   ctx.effect(() => webServer.register({
     kind: 'exact',
