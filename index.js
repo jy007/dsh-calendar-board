@@ -400,7 +400,9 @@ export async function listCalendarEvents(input = {}) {
   await Promise.all(feeds.map(async (source) => {
     const feed = await loadFeed(source);
     const byDay = eventsByDay(feed.events, from, to);
-    status.push({ id: source.id, name: source.name, color: source.color, error: feed.error, count: byDay.size });
+    let occurrences = 0;
+    for (const list of byDay.values()) occurrences += list.length;
+    status.push({ id: source.id, name: source.name, color: source.color, error: feed.error, count: occurrences, days: byDay.size });
     for (const [date, list] of byDay) {
       for (const item of list) {
         events.push(Object.assign({ sourceId: source.id, sourceName: source.name, color: source.color, date }, item));
