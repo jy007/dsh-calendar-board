@@ -17,7 +17,7 @@
 // "Identifier 'STORE_KEY' has already been declared" on the second load.
 (function () {
 // #region helpers
-const BUILD_TAG = '1.1.0';
+const BUILD_TAG = '1.1.1';
 const STORE_KEY = 'dsh-calendar-board.items.v1';
 const NOTIFY_KEY = 'dsh-calendar-board.notify.v1';
 
@@ -900,6 +900,7 @@ window.__ModuleLoader__.load({
         const [cheer, setCheer] = useState(null);
         const [fireworks, setFireworks] = useState(0);
         const itemsRef = useRef(items);
+        const connectedRef = useRef(false);
         const hostRef = useRef('unknown');
         const dirtyRef = useRef(false);
         const pushTimerRef = useRef(null);
@@ -953,58 +954,61 @@ window.__ModuleLoader__.load({
           }, 350);
         }
 
-        useEffect(function () {
+        function adoptHost(list) {
+          itemsRef.current = list;
+          setItems(list);
+          writeItems(list);
+        }
+
+        /**
+         * Pull the Host copy. The first success decides the mode; when the Host
+         * store is still empty the page hands its localStorage entries over once.
+         * Later successes only replace local state when nothing is mid-edit.
+         */
+        function connectHost() {
           if (typeof fetch !== 'function') {
             setSync('local');
-            return undefined;
+            return;
           }
-          let cancelled = false;
           fetch('/calendar-board/items', { headers: { accept: 'application/json' } })
             .then(function (response) {
               if (!response || !response.ok) throw new Error('items route refused');
               return response.json();
             })
             .then(function (payload) {
-              if (cancelled) return;
               if (!payload || payload.ok !== true || !Array.isArray(payload.items)) throw new Error('items payload');
+              const remote = payload.items.map(normalizeClientItem).filter(Boolean);
+              const first = !connectedRef.current;
+              connectedRef.current = true;
               hostRef.current = 'host';
               setSync('host');
-              const remote = payload.items.map(normalizeClientItem).filter(Boolean);
-              const local = itemsRef.current || [];
-              if (remote.length === 0 && local.length > 0) {
-                pushToHost(local);
+              if (first) {
+                const local = itemsRef.current || [];
+                if (remote.length === 0 && local.length > 0) {
+                  pushToHost(local);
+                  return;
+                }
+                if (canonicalItems(remote) !== canonicalItems(local)) adoptHost(remote);
                 return;
               }
-              itemsRef.current = remote;
-              setItems(remote);
-              writeItems(remote);
+              if (dirtyRef.current) return;
+              if (canonicalItems(remote) !== canonicalItems(itemsRef.current)) adoptHost(remote);
             })
             .catch(function () {
-              if (cancelled) return;
+              if (connectedRef.current) return;
               hostRef.current = 'local';
               setSync('local');
             });
-          return function () { cancelled = true; };
-        }, []);
+        }
 
         useEffect(function () {
-          if (sync !== 'host') return undefined;
+          connectHost();
           const timer = setInterval(function () {
             if (dirtyRef.current) return;
-            fetch('/calendar-board/items', { headers: { accept: 'application/json' } })
-              .then(function (response) { return response && response.ok ? response.json() : null; })
-              .then(function (payload) {
-                if (!payload || payload.ok !== true || !Array.isArray(payload.items)) return;
-                const remote = payload.items.map(normalizeClientItem).filter(Boolean);
-                if (canonicalItems(remote) === canonicalItems(itemsRef.current)) return;
-                itemsRef.current = remote;
-                setItems(remote);
-                writeItems(remote);
-              })
-              .catch(function () {});
-          }, 20000);
+            connectHost();
+          }, 15000);
           return function () { clearInterval(timer); };
-        }, [sync]);
+        }, []);
 
         const loadSchedules = useCallback(function () {
           if (catalogRef.current === undefined) {
