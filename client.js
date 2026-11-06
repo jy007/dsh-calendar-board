@@ -17,7 +17,7 @@
 // "Identifier 'STORE_KEY' has already been declared" on the second load.
 (function () {
 // #region helpers
-const BUILD_TAG = '1.1.4';
+const BUILD_TAG = '1.2.0';
 const STORE_KEY = 'dsh-calendar-board.items.v1';
 const NOTIFY_KEY = 'dsh-calendar-board.notify.v1';
 
@@ -291,6 +291,24 @@ function writeNotifyFlag(value) {
 }
 
 const SOUND_KEY = 'dsh-calendar-board.sound.v1';
+const HIDDEN_KEY = 'dsh-calendar-board.hidden-sources.v1';
+
+function readHiddenSources() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(HIDDEN_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed.filter(function (id) { return typeof id === 'string'; }) : [];
+  } catch (error) {
+    return [];
+  }
+}
+
+function writeHiddenSources(ids) {
+  try {
+    window.localStorage.setItem(HIDDEN_KEY, JSON.stringify(ids));
+  } catch (error) {
+    /* ignore */
+  }
+}
 
 function readSoundFlag() {
   try {
@@ -371,6 +389,24 @@ window.__ModuleLoader__.load({
         ruleEveryHours: function (value) { return '每 ' + value + ' 小时'; },
         cellAdd: '添加事项…',
         scheduleInline: function (count) { return '定时任务 ' + count; },
+        legendTitle: '日历来源',
+        legendLocal: '我的事项',
+        legendSchedule: '定时任务',
+        subscribe: '订阅日历',
+        subscribeTitle: '添加 iCal 订阅（Google / 飞书 / Outlook 的“私密 iCal 地址”）',
+        nameLabel: '名称',
+        urlLabel: 'iCal 地址',
+        colorLabel: '颜色',
+        addSubscription: '添加',
+        cancel: '取消',
+        calendarTag: '订阅',
+        calendarInline: function (count) { return '订阅日程 ' + count; },
+        allDayLabel: '全天',
+        colorNames: { blue: '蓝', green: '绿', amber: '橙', red: '红', gray: '灰' },
+        removeSubscription: '取消订阅',
+        subscribeFailed: '订阅失败',
+        noCalendarEvents: '这一天没有订阅来源的日程',
+        calendarSection: '日历日程',
         syncHost: '已同步 Host',
         syncLocal: '仅本机保存',
         cellHint: '点击日期格即可编辑 · 回车保存 · Esc 退出',
@@ -436,6 +472,24 @@ window.__ModuleLoader__.load({
         ruleEveryHours: function (value) { return 'every ' + value + ' h'; },
         cellAdd: 'Add an item…',
         scheduleInline: function (count) { return count + ' scheduled'; },
+        legendTitle: 'Calendars',
+        legendLocal: 'My entries',
+        legendSchedule: 'Scheduled',
+        subscribe: 'Subscribe',
+        subscribeTitle: 'Add an iCal subscription (the secret iCal address from Google / Feishu / Outlook)',
+        nameLabel: 'Name',
+        urlLabel: 'iCal address',
+        colorLabel: 'Color',
+        addSubscription: 'Add',
+        cancel: 'Cancel',
+        calendarTag: 'Feed',
+        calendarInline: function (count) { return count + ' calendar event' + (count === 1 ? '' : 's'); },
+        allDayLabel: 'All day',
+        colorNames: { blue: 'Blue', green: 'Green', amber: 'Amber', red: 'Red', gray: 'Gray' },
+        removeSubscription: 'Unsubscribe',
+        subscribeFailed: 'Subscription failed',
+        noCalendarEvents: 'No subscribed events on this day',
+        calendarSection: 'Calendar events',
         syncHost: 'Synced to Host',
         syncLocal: 'Local only',
         cellHint: 'Click a day to edit · Enter saves · Esc exits',
@@ -556,6 +610,27 @@ window.__ModuleLoader__.load({
       '.dscb-tool-dot{width:9px;height:9px;border-radius:999px;background:currentColor;}',
       '.dscb-index{flex:none;min-width:15px;font-size:11.5px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;}',
       '.dscb-task-line{display:flex;align-items:center;gap:6px;min-width:0;}',
+      '.dscb-src-blue{--dscb-src:var(--dsw-alias-brand-primary);}',
+      '.dscb-src-green{--dscb-src:var(--dsw-alias-state-success-primary);}',
+      '.dscb-src-amber{--dscb-src:var(--dsw-alias-state-warn-primary);}',
+      '.dscb-src-red{--dscb-src:var(--dsw-alias-state-error-primary);}',
+      '.dscb-src-gray{--dscb-src:var(--dsw-alias-label-secondary);}',
+      '.dscb-legend{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 20px;border-bottom:1px solid var(--dsw-alias-border-l1);}',
+      '.dscb-legend-title{font-size:11.5px;color:var(--dsw-alias-label-secondary);margin-right:2px;}',
+      '.dscb-source{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);font-size:11.5px;color:var(--dsw-alias-label-primary);cursor:pointer;font-family:inherit;}',
+      '.dscb-source:hover{border-color:var(--dsw-alias-border-l2);}',
+      '.dscb-source.is-off{opacity:.45;text-decoration:line-through;}',
+      '.dscb-source-dot{width:8px;height:8px;border-radius:999px;flex:none;background:var(--dscb-src,var(--dsw-alias-label-secondary));}',
+      '.dscb-source-x{border:none;background:transparent;color:var(--dsw-alias-label-secondary);cursor:pointer;font-size:12px;line-height:1;padding:0 0 0 2px;}',
+      '.dscb-source-x:hover{color:var(--dsw-alias-state-error-primary);}',
+      '.dscb-source-add{height:24px;padding:0 10px;border-radius:999px;border:1px dashed var(--dsw-alias-border-l2);background:transparent;color:var(--dsw-alias-label-secondary);font-size:11.5px;font-family:inherit;cursor:pointer;}',
+      '.dscb-source-add:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-brand-primary);}',
+      '.dscb-sub-form{display:flex;flex-direction:column;gap:8px;padding:10px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);}',
+      '.dscb-sub-row{display:flex;align-items:center;gap:8px;}',
+      '.dscb-select{height:30px;padding:0 8px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12px;font-family:inherit;}',
+      '.dscb-line.is-calendar{background:transparent;border-left:2px solid var(--dscb-src,var(--dsw-alias-border-l2));}',
+      '.dscb-line.is-calendar .dscb-line-mark{background:var(--dscb-src);}',
+      '.dscb-task.is-calendar{background:transparent;border-left:3px solid var(--dscb-src,var(--dsw-alias-border-l2));}',
       '.dscb-fireworks{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:6;}',
       '.dscb-confetti{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:6;}',
       '.dscb-confetti-piece{position:absolute;border-radius:2px;opacity:0;animation:dscb-confetti-fly 1.05s cubic-bezier(.2,.7,.3,1) forwards;}',
@@ -890,6 +965,12 @@ window.__ModuleLoader__.load({
         const [selected, setSelected] = useState(function () { return dateKey(new Date()); });
         const [items, setItems] = useState(readItems);
         const [sync, setSync] = useState('unknown');
+        const [sources, setSources] = useState([]);
+        const [external, setExternal] = useState([]);
+        const [hidden, setHidden] = useState(readHiddenSources);
+        const [subForm, setSubForm] = useState(null);
+        const [subError, setSubError] = useState('');
+        const [feedTick, setFeedTick] = useState(0);
         const [schedule, setSchedule] = useState({ status: 'loading', entries: [], source: null });
         const [notifyOn, setNotifyOn] = useState(readNotifyFlag);
         const [notice, setNotice] = useState('');
@@ -1006,9 +1087,106 @@ window.__ModuleLoader__.load({
           const timer = setInterval(function () {
             if (dirtyRef.current) return;
             connectHost();
+            setFeedTick(function (n) { return n + 1; });
           }, 15000);
           return function () { clearInterval(timer); };
         }, []);
+
+        /** Calendar subscriptions: the source list and their events in the shown grid. */
+        function loadFeeds() {
+          if (typeof fetch !== 'function') return;
+          const grid = monthMatrix(view.year, view.month);
+          const from = dateKey(grid[0]);
+          const to = dateKey(grid[grid.length - 1]);
+          fetch('/calendar-board/sources', { headers: { accept: 'application/json' } })
+            .then(function (response) { return response && response.ok ? response.json() : null; })
+            .then(function (payload) {
+              if (payload && payload.ok && Array.isArray(payload.sources)) setSources(payload.sources);
+            })
+            .catch(function () {});
+          fetch('/calendar-board/events?from=' + from + '&to=' + to, { headers: { accept: 'application/json' } })
+            .then(function (response) { return response && response.ok ? response.json() : null; })
+            .then(function (payload) {
+              if (payload && payload.ok && Array.isArray(payload.events)) setExternal(payload.events);
+            })
+            .catch(function () {});
+        }
+
+        useEffect(loadFeeds, [view.year, view.month, feedTick]);
+
+        const externalByDay = useMemo(function () {
+          const map = new Map();
+          for (const event of external) {
+            if (hidden.indexOf(event.sourceId) >= 0) continue;
+            if (!map.has(event.date)) map.set(event.date, []);
+            map.get(event.date).push(event);
+          }
+          for (const list of map.values()) {
+            list.sort(function (a, b) { return (a.time || '00:00').localeCompare(b.time || '00:00'); });
+          }
+          return map;
+        }, [external, hidden]);
+
+        const legend = useMemo(function () {
+          const builtins = [
+            { id: 'local', kind: 'local', color: 'blue', name: t('legendLocal') },
+            { id: 'schedule', kind: 'schedule', color: 'amber', name: t('legendSchedule') },
+          ];
+          const feeds = sources
+            .filter(function (source) { return source.kind === 'ics'; })
+            .map(function (source) {
+              return { id: source.id, kind: 'ics', color: source.color || 'green', name: source.name, error: source.lastError };
+            });
+          return builtins.concat(feeds);
+        }, [sources, localeTick]);
+
+        function toggleSource(id) {
+          const next = hidden.indexOf(id) >= 0
+            ? hidden.filter(function (item) { return item !== id; })
+            : hidden.concat([id]);
+          setHidden(next);
+          writeHiddenSources(next);
+        }
+
+        function submitSubscription() {
+          const form = subForm || {};
+          if (!form.url || !String(form.url).trim()) {
+            setSubError(t('subscribeFailed'));
+            return;
+          }
+          fetch('/calendar-board/sources', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              action: 'add',
+              name: form.name || '',
+              url: form.url,
+              color: form.color || 'green',
+            }),
+          })
+            .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
+            .then(function (result) {
+              if (!result.ok || !result.body || result.body.ok !== true) {
+                throw new Error((result.body && result.body.error) || 'refused');
+              }
+              setSubForm(null);
+              setSubError('');
+              setFeedTick(function (n) { return n + 1; });
+            })
+            .catch(function (error) {
+              setSubError(t('subscribeFailed') + ': ' + String((error && error.message) || error));
+            });
+        }
+
+        function unsubscribeSource(id) {
+          fetch('/calendar-board/sources', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ action: 'remove', id: id }),
+          })
+            .then(function () { setFeedTick(function (n) { return n + 1; }); })
+            .catch(function () {});
+        }
 
         const loadSchedules = useCallback(function () {
           if (catalogRef.current === undefined) {
@@ -1068,9 +1246,26 @@ window.__ModuleLoader__.load({
         const grid = useMemo(function () {
           return days.map(function (day) {
             const key = dateKey(day);
-            return { date: day, key: key, items: occurrencesForDay(items, schedule.entries, key, t) };
+            const calendarItems = (externalByDay.get(key) || []).map(function (event) {
+              return {
+                key: 'cal:' + event.sourceId + ':' + key + ':' + event.title + ':' + event.time,
+                id: event.sourceId,
+                source: 'calendar',
+                color: event.color,
+                sourceName: event.sourceName,
+                title: event.title,
+                time: event.time,
+                allDay: !!event.allDay,
+                date: key,
+              };
+            });
+            return {
+              date: day,
+              key: key,
+              items: calendarItems.concat(occurrencesForDay(items, schedule.entries, key, t)),
+            };
           });
-        }, [days, items, schedule.entries, localeTick]);
+        }, [days, items, schedule.entries, externalByDay, localeTick]);
 
         const selectedItems = useMemo(function () {
           return occurrencesForDay(items, schedule.entries, selected, t);
@@ -1079,6 +1274,8 @@ window.__ModuleLoader__.load({
         const todayItems = useMemo(function () {
           return occurrencesForDay(items, schedule.entries, todayKey, t);
         }, [items, schedule.entries, todayKey, localeTick]);
+
+        const selectedEvents = externalByDay.get(selected) || [];
 
         useEffect(function () {
           if (!notifyOn) return undefined;
@@ -1350,6 +1547,50 @@ window.__ModuleLoader__.load({
 
         const header = h('header', { className: 'dscb-head' }, headerLeft, headerRight);
 
+        const legendBar = h('div', { className: 'dscb-legend' },
+          h('span', { className: 'dscb-legend-title' }, t('legendTitle')),
+          legend.map(function (source) {
+            const off = hidden.indexOf(source.id) >= 0;
+            return h('span', {
+              key: source.id,
+              role: 'button',
+              tabIndex: 0,
+              className: 'dscb-source dscb-src-' + source.color + (off ? ' is-off' : ''),
+              title: source.name + (source.error ? ' · ' + source.error : ''),
+              onClick: function () { toggleSource(source.id); },
+              onKeyDown: function (event) {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  toggleSource(source.id);
+                }
+              },
+            },
+            h('span', { className: 'dscb-source-dot' }),
+            h('span', null, source.name),
+            source.kind === 'ics'
+              ? h('span', {
+                className: 'dscb-source-x',
+                role: 'button',
+                tabIndex: 0,
+                title: t('removeSubscription'),
+                'aria-label': t('removeSubscription'),
+                onClick: function (event) {
+                  event.stopPropagation();
+                  unsubscribeSource(source.id);
+                },
+              }, '×')
+              : null);
+          }),
+          h('button', {
+            type: 'button',
+            className: 'dscb-source-add',
+            title: t('subscribeTitle'),
+            onClick: function () {
+              setSubForm(subForm ? null : { name: '', url: '', color: 'green' });
+              setSubError('');
+            },
+          }, '+ ' + t('subscribe')));
+
         const weekHead = h('div', { className: 'dscb-weekrow' },
           h('div', { className: 'dscb-weekhead', 'aria-hidden': true }, t('weekNumber')),
           weekdayLabels.map(function (label, index) {
@@ -1362,6 +1603,7 @@ window.__ModuleLoader__.load({
         function readOnlyLine(entry) {
           const lineClasses = ['dscb-line'];
           if (entry.source === 'schedule') lineClasses.push('is-schedule');
+          if (entry.source === 'calendar') lineClasses.push('is-calendar', 'dscb-src-' + (entry.color || 'gray'));
           if (entry.done) lineClasses.push('is-done');
           if (entry.status === 'inactive') lineClasses.push('is-ended');
           return h('div', {
@@ -1442,8 +1684,12 @@ window.__ModuleLoader__.load({
                   },
                 }),
               ]);
+              const calendarCount = cell.items.filter(function (entry) { return entry.source === 'calendar'; }).length;
               if (scheduleEntries.length) {
                 lines.push(h('div', { key: '__schedules', className: 'dscb-more' }, t('scheduleInline', scheduleEntries.length)));
+              }
+              if (calendarCount) {
+                lines.push(h('div', { key: '__calendar', className: 'dscb-more' }, t('calendarInline', calendarCount)));
               }
             } else {
               const shown = cell.items.slice(0, 3);
@@ -1641,7 +1887,75 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dscb-progress' }, h('span', { style: { width: progress + '%' } })),
             h('div', { className: 'dscb-progress-text' }, t('taskDone', selectedDone, selectedItems.length)),
             selected === todayKey ? null : h('div', { className: 'dscb-progress-text' }, t('todayLine', doneCount, totalCount))),
+          subForm
+            ? h('form', {
+              className: 'dscb-sub-form',
+              onSubmit: function (event) { event.preventDefault(); submitSubscription(); },
+            },
+            h('div', { className: 'dscb-sub-row' },
+              h('input', {
+                className: 'dscb-input',
+                placeholder: t('nameLabel'),
+                value: subForm.name,
+                'aria-label': t('nameLabel'),
+                onChange: function (event) {
+                  const value = event.target.value;
+                  setSubForm(function (prev) { return Object.assign({}, prev, { name: value }); });
+                },
+              }),
+              h('button', {
+                type: 'button',
+                className: 'dscb-tool',
+                title: t('cancel'),
+                onClick: function () { setSubForm(null); setSubError(''); },
+              }, '×')),
+            h('input', {
+              className: 'dscb-input',
+              placeholder: t('urlLabel'),
+              value: subForm.url,
+              'aria-label': t('urlLabel'),
+              onChange: function (event) {
+                const value = event.target.value;
+                setSubForm(function (prev) { return Object.assign({}, prev, { url: value }); });
+              },
+            }),
+            h('div', { className: 'dscb-sub-row' },
+              h('span', { className: 'dscb-hint' }, t('colorLabel')),
+              h('select', {
+                className: 'dscb-select',
+                value: subForm.color,
+                'aria-label': t('colorLabel'),
+                onChange: function (event) {
+                  const value = event.target.value;
+                  setSubForm(function (prev) { return Object.assign({}, prev, { color: value }); });
+                },
+              }, ['green', 'blue', 'amber', 'red', 'gray'].map(function (color) {
+                return h('option', { key: color, value: color }, t('colorNames')[color] || color);
+              })),
+              h('button', {
+                type: 'submit',
+                className: 'dscb-btn dscb-btn-primary',
+                style: { marginLeft: 'auto' },
+              }, t('addSubscription'))),
+            subError ? h('div', { className: 'dscb-hint' }, subError) : null)
+            : null,
           addForm,
+          selectedEvents.length
+            ? h('div', { className: 'dscb-scroll' },
+              h('div', { className: 'dscb-section' }, t('calendarSection')),
+              h('div', { className: 'dscb-list' }, selectedEvents.map(function (event) {
+                return h('div', {
+                  key: 'ev:' + event.sourceId + ':' + event.date + ':' + event.time + ':' + event.title,
+                  className: 'dscb-task is-calendar dscb-src-' + (event.color || 'gray'),
+                },
+                h('span', { className: 'dscb-line-mark', style: { marginTop: 6 } }),
+                h('div', { className: 'dscb-task-main' },
+                  h('div', { className: 'dscb-task-title' }, event.title),
+                  h('div', { className: 'dscb-task-meta' },
+                    h('span', null, event.time || t('allDayLabel')),
+                    h('span', { className: 'dscb-tag' }, event.sourceName || t('calendarTag')))));
+              })))
+            : null,
           h('div', { className: 'dscb-scroll' },
             h('div', { className: 'dscb-section' }, t('todaySection')),
             h('div', { className: 'dscb-list' }, taskRows),
@@ -1654,6 +1968,7 @@ window.__ModuleLoader__.load({
         return h('div', { className: 'dscb-root' },
           h(Styles, null),
           header,
+          legendBar,
           h('div', { className: 'dscb-body' },
             h('section', { className: 'dscb-cal' }, weekHead, h('div', { className: 'dscb-grid' }, cells)),
             rail),

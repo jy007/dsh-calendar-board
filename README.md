@@ -24,6 +24,12 @@ A month-view calendar board for [DeepSeek Harness](https://deepseek.com) desktop
 - Hover the end of a row: `U` toggles underline, `●` cycles the text color (default / red / amber / green / blue), `×` deletes
 - The day panel numbers entries `1. 2. 3.` and shows a completion progress bar
 
+**Calendar subscriptions**
+- Subscribe to any iCalendar feed — the secret iCal address Google Calendar, Feishu/Lark, Outlook or Apple Calendar hands out — and its events appear beside your own tasks
+- Every source has its own color; the legend under the header toggles each source on or off
+- Recurring events (daily / weekly with `BYDAY` / monthly / yearly, `COUNT`, `UNTIL`, `EXDATE`), all-day events, `TZID` wall times and UTC times are expanded into the visible month
+- Feeds are fetched by the Host and cached for ten minutes; no third-party script runs in the page
+
 **Scheduled reminders**
 - Reads DSH's `schedule` service and expands daily / weekly / one-shot / every / cron reminders into the calendar
 - A header badge shows the sync state; the Host half also exposes a read-only `/calendar-board/schedules` route as a fallback source
@@ -96,6 +102,11 @@ Every action answers with the same envelope: `{ "ok": true, ... }` — `list` ad
 | `update` | `id` + any of `title`/`date`/`time`/`repeat`/`color`/`underline` | edit in place |
 | `complete` | `id`, optional `date`, `done` | tick or untick one day of one entry |
 | `remove` | `id` | delete an entry |
+| `sources` | – | the local, scheduled and subscribed calendars with their colors |
+| `events` | `from`/`to` | events of every subscribed feed in a window |
+| `subscribe` | `name`, `url` | add an iCal subscription (`webcal://` is normalised) |
+| `unsubscribe` | `id` | remove a subscription |
+| `toggleSource` | `id`, `enabled` | hide or show one source |
 
 Things you can simply say to your agent:
 
@@ -110,11 +121,13 @@ Other plugins can call the same implementation through the `calendarBoard` Host 
 | What | Where |
 | --- | --- |
 | Your entries | `<DSH_HOME>/storages/calendar-board/items.json` on the Host; the page keeps a localStorage cache |
+| Subscribed iCal addresses | `<DSH_HOME>/storages/calendar-board/sources.json`; their events are cached in memory only |
+| Which legend chips are off | browser localStorage: `dsh-calendar-board.hidden-sources.v1` |
 | Sound preference | `dsh-calendar-board.sound.v1` |
 | Daily nudge preference | `dsh-calendar-board.notify.v1` |
 | Scheduled reminders | read-only, from the DSH `schedule` service, never stored |
 
-No network requests beyond DSH's own local HTTP port. The panel footer shows `已同步 Host` / `仅本机保存` so you can see whether it is talking to the Host store.
+The page itself makes no network requests beyond DSH's own local HTTP port. The Host fetches a subscribed iCal URL only when a month is displayed (cached for 10 minutes), so the calendar provider sees a request from this machine — treat the secret iCal address like a password. The panel footer shows `已同步 Host` / `仅本机保存` so you can see whether it is talking to the Host store.
 
 ## Compatibility
 
@@ -160,6 +173,7 @@ Edits to `client.js` hot-reload; edits to `index.js` (the Host half) need a DSH 
 
 ## Changelog
 
+- **1.2.0** — calendar subscriptions: iCal feeds (Google / Feishu / Outlook / Apple) with per-source colors, a legend that toggles each source, and `sources` / `events` / `subscribe` / `unsubscribe` / `toggleSource` tool actions
 - **1.1.2** — the panel-independent migration runs on page load, so pre-1.1 localStorage entries reach the Host store without opening the panel
 - **1.1.1** — the panel retries the Host connection every 15s instead of staying local after one failed attempt
 - **1.1.0** — Host-side store + `calendar_board` agent tool + `calendarBoard` service; the panel syncs to the Host store instead of living only in localStorage

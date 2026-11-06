@@ -25,7 +25,7 @@ jobs:
           if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') throw new Error('missing dsh.bundle.patch');
           if (!pkg.dsh?.client?.platform) throw new Error('missing dsh.client.platform');
           if (pkg.exports['./client'] !== './client.js') throw new Error('missing ./client export');
-          for (const file of ['index.js', 'client.js', 'cordis.patch.yml', 'icon.svg']) {
+          for (const file of ['index.js', 'client.js', 'ics.js', 'cordis.patch.yml', 'icon.svg']) {
             if (!fs.existsSync(file)) throw new Error('missing ' + file);
           }
           for (const locale of ['zh', 'en']) {
@@ -37,6 +37,38 @@ jobs:
           const client = fs.readFileSync('client.js', 'utf8');
           if (!client.includes(\"id: '\" + pkg.name + \"'\")) throw new Error('client module id must equal the package name');
           console.log('manifests ok');
+          "
+      - name: iCalendar reader
+        run: |
+          node -e "
+          const fs = require('fs');
+          const source = fs.readFileSync('ics.js', 'utf8');
+          import('data:text/javascript;base64,' + Buffer.from(source).toString('base64')).then(({ parseIcs, eventsByDay }) => {
+            const ics = [
+              'BEGIN:VCALENDAR',
+              'BEGIN:VEVENT',
+              'UID:a',
+              'SUMMARY:Weekly sync',
+              'DTSTART;TZID=Asia/Shanghai:20261102T100000',
+              'DTEND;TZID=Asia/Shanghai:20261102T110000',
+              'RRULE:FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20261130T235959Z',
+              'END:VEVENT',
+              'BEGIN:VEVENT',
+              'UID:b',
+              'SUMMARY:All day',
+              'DTSTART;VALUE=DATE:20261107',
+              'DTEND;VALUE=DATE:20261108',
+              'END:VEVENT',
+              'END:VCALENDAR',
+            ].join('\r\n');
+            const events = parseIcs(ics);
+            if (events.length !== 2) throw new Error('parsed ' + events.length + ' events');
+            const byDay = eventsByDay(events, new Date(2026, 10, 1), new Date(2026, 11, 1));
+            const weekly = [...byDay.values()].flat().filter((e) => e.title === 'Weekly sync');
+            if (weekly.length < 8) throw new Error('expanded only ' + weekly.length + ' weekly occurrences');
+            if (!byDay.get('2026-11-07').some((e) => e.allDay)) throw new Error('all-day event missing');
+            console.log('ics ok:', weekly.length, 'weekly occurrences');
+          });
           "
       - name: Client module survives repeated evaluation
         run: |

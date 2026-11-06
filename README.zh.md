@@ -24,6 +24,12 @@
 - 悬停行尾：`U` 下划线开关、`●` 循环换色（默认/红/橙/绿/蓝）、`×` 删除
 - 右侧当日面板按 `1. 2. 3.` 编号，带完成进度条
 
+**订阅个人日历**
+- 用任意 iCalendar 订阅地址接入：Google 日历、飞书、Outlook、Apple 日历的「私密 iCal 地址」都行，日程与自己的事项并列显示
+- 每个来源一种颜色，顶栏图例可逐个开关
+- 支持每日/每周（`BYDAY`）/每月/每年重复，`COUNT`、`UNTIL`、`EXDATE`，全天事件，`TZID` 当地时间与 UTC 时间，都会展开进当前月
+- 订阅由 Host 拉取并缓存 10 分钟，页面里不执行任何第三方脚本
+
 **定时任务叠加**
 - 读取 DSH 的 `schedule` 服务，把 daily / weekly / 一次性 / every / cron 提醒按天展开进日历
 - 顶栏徽标显示同步状态；Host 侧另有只读路由 `/calendar-board/schedules` 作为备用数据源
@@ -96,6 +102,11 @@ Host 半是唯一的数据源，所以**任何 DSH 会话**都能通过一个工
 | `update` | `id` + `title`/`date`/`time`/`repeat`/`color`/`underline` 任意项 | 原地修改 |
 | `complete` | `id`，可选 `date`、`done` | 勾选/取消某一条的某一天 |
 | `remove` | `id` | 删除 |
+| `sources` | – | 列出本地、定时任务、订阅三类来源及颜色 |
+| `events` | `from`/`to` | 某时间窗内所有订阅来源的日程 |
+| `subscribe` | `name`、`url` | 新增 iCal 订阅（`webcal://` 会自动改写） |
+| `unsubscribe` | `id` | 取消订阅 |
+| `toggleSource` | `id`、`enabled` | 显示/隐藏某个来源 |
 
 可以直接对助手说：
 
@@ -110,11 +121,13 @@ Host 半是唯一的数据源，所以**任何 DSH 会话**都能通过一个工
 | 内容 | 位置 |
 | --- | --- |
 | 你写的事项 | Host 侧 `<DSH_HOME>/storages/calendar-board/items.json`；页面保留一份 localStorage 缓存 |
+| 订阅的 iCal 地址 | `<DSH_HOME>/storages/calendar-board/sources.json`；日程只在内存里缓存 |
+| 图例里关掉了哪些来源 | 浏览器 localStorage：`dsh-calendar-board.hidden-sources.v1` |
 | 音效开关 | `dsh-calendar-board.sound.v1` |
 | 每日提醒开关 | `dsh-calendar-board.notify.v1` |
 | 定时任务 | 只读，来自 DSH `schedule` 服务，不落盘 |
 
-除本机 DSH 自己的 HTTP 端口外，没有任何网络请求。面板底部会显示 `已同步 Host` / `仅本机保存`，一眼能看出它有没有接上 Host 存储。
+页面本身除本机 DSH 的 HTTP 端口外不发请求。订阅地址只在显示某个月时由 Host 拉取一次（缓存 10 分钟），因此日历服务商看到的是这台机器的请求 —— 私密 iCal 地址请当作密码对待。面板底部会显示 `已同步 Host` / `仅本机保存`，一眼能看出它有没有接上 Host 存储。
 
 ## 兼容性
 
@@ -160,6 +173,7 @@ dsh-calendar-board/
 
 ## 更新日志
 
+- **1.2.0** — 日历订阅：iCal 源（Google / 飞书 / Outlook / Apple），按来源配色，图例可逐个开关；工具新增 `sources` / `events` / `subscribe` / `unsubscribe` / `toggleSource`
 - **1.1.2** — 迁移改为页面加载时就执行，不依赖打开日历面板
 - **1.1.1** — 面板每 15 秒重试一次 Host 连接，不再因首次失败永久留在本机模式
 - **1.1.0** — Host 侧存储 + `calendar_board` Agent 工具 + `calendarBoard` 服务；面板改为同步 Host 存储，不再只存在 localStorage

@@ -14,16 +14,20 @@
  */
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { eventsByDay, parseIcs } from './ics.js';
 import { homedir } from 'node:os';
 import path from 'node:path';
 
 const ROUTE_ITEMS = '/calendar-board/items';
+const ROUTE_SOURCES = '/calendar-board/sources';
+const ROUTE_EVENTS = '/calendar-board/events';
 const ROUTE_SCHEDULES = '/calendar-board/schedules';
 const SCHEDULE_CACHE_MS = 10000;
 
 const DSH_HOME = process.env.DSH_HOME || path.join(homedir(), '.dsh');
 const STORE_DIR = path.join(DSH_HOME, 'storages', 'calendar-board');
 const STORE_FILE = path.join(STORE_DIR, 'items.json');
+const SOURCES_FILE = path.join(STORE_DIR, 'sources.json');
 const STORE_VERSION = 1;
 
 const COLORS = ['', 'red', 'amber', 'green', 'blue'];
@@ -31,6 +35,9 @@ const REPEATS = ['none', 'daily'];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
 const MAX_TITLE = 200;
+const SOURCE_COLORS = ['blue', 'green', 'amber', 'red', 'gray'];
+const ICS_TTL_MS = 10 * 60 * 1000;
+const ICS_TIMEOUT_MS = 15000;
 
 /* ------------------------------------------------------------------ store */
 
@@ -237,6 +244,173 @@ export async function replaceItems(input = {}) {
   return { ok: true, count: items.length };
 }
 
+/* --------------------------------------------------------------- sources */
+
+let sourcesCache = null;
+let sourceQueue = Promise.resolve();
+const icsCache = new Map();
+
+export const BUILTIN_SOURCES = [
+  { id: 'local', kind: 'local', color: 'blue', enabled: true },
+  { id: 'schedule', kind: 'schedule', color: 'amber', enabled: true },
+];
+
+async function readSources() {
+  if (sourcesCache) return sourcesCache;
+  try {
+    const text = await readFile(SOURCES_FILE, 'utf8');
+    const parsed = JSON.parse(text);
+    const sources = Array.isArray(parsed && parsed.sources) ? parsed.sources : [];
+    sourcesCache = { version: 1, sources: sources.filter((item) => item && typeof item.url === 'string' && item.id) };
+  } catch (error) {
+    if (error && error.code !== 'ENOENT') console.warn('[calendar-board] sources unreadable:', error.message);
+    sourcesCache = { version: 1, sources: [] };
+  }
+  return sourcesCache;
+}
+
+function persistSources(next) {
+  sourcesCache = next;
+  sourceQueue = sourceQueue
+    .then(async () => {
+      await mkdir(STORE_DIR, { recursive: true });
+      const target = SOURCES_FILE + '.' + process.pid + '.tmp';
+      await writeFile(target, JSON.stringify(next, null, 2) + '\n', 'utf8');
+      await rename(target, SOURCES_FILE);
+    })
+    .catch((error) => console.warn('[calendar-board] sources write failed:', error && error.message));
+  return sourceQueue;
+}
+
+function normalizeFeedUrl(raw) {
+  const value = String(raw || '').trim().replace(/^webcal:\/\//i, 'https://');
+  let url;
+  try {
+    url = new URL(value);
+  } catch (error) {
+    throw new Error('url must be an http(s) calendar address');
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') throw new Error('url must be an http(s) calendar address');
+  return url.toString();
+}
+
+function publicSource(source) {
+  const cached = icsCache.get(source.id);
+  return {
+    id: source.id,
+    kind: 'ics',
+    name: source.name,
+    url: source.url,
+    color: source.color,
+    enabled: source.enabled !== false,
+    lastSync: cached ? cached.at : null,
+    lastError: cached ? cached.error : null,
+    cachedEvents: cached ? cached.events.length : 0,
+  };
+}
+
+export async function listSources() {
+  const store = await readSources();
+  return { ok: true, sources: BUILTIN_SOURCES.concat(store.sources.map(publicSource)) };
+}
+
+export async function addSource(input = {}) {
+  const store = await readSources();
+  const url = normalizeFeedUrl(input.url);
+  if (store.sources.some((source) => source.url === url)) throw new Error('that calendar is already subscribed');
+  const name = String(input.name || '').trim().slice(0, 60) || new URL(url).hostname;
+  const color = SOURCE_COLORS.includes(input.color) ? input.color : SOURCE_COLORS[store.sources.length % SOURCE_COLORS.length];
+  const source = {
+    id: 'src' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    name,
+    url,
+    color,
+    enabled: true,
+  };
+  await persistSources({ version: 1, sources: store.sources.concat([source]) });
+  return { ok: true, source: publicSource(source) };
+}
+
+export async function removeSource(input = {}) {
+  const store = await readSources();
+  const id = String(input.id || '');
+  const next = store.sources.filter((source) => source.id !== id);
+  if (next.length === store.sources.length) throw new Error('no subscribed calendar with id ' + id);
+  icsCache.delete(id);
+  await persistSources({ version: 1, sources: next });
+  return { ok: true, removed: id, remaining: next.length };
+}
+
+export async function setSourceEnabled(input = {}) {
+  const store = await readSources();
+  const id = String(input.id || '');
+  const index = store.sources.findIndex((source) => source.id === id);
+  if (index < 0) throw new Error('no subscribed calendar with id ' + id);
+  const next = store.sources.slice();
+  next[index] = Object.assign({}, next[index], { enabled: input.enabled !== false });
+  await persistSources({ version: 1, sources: next });
+  return { ok: true, source: publicSource(next[index]) };
+}
+
+/** Feed text of one source, cached for a few minutes so a month view is cheap. */
+async function loadFeed(source) {
+  const cached = icsCache.get(source.id);
+  const now = Date.now();
+  if (cached && now - cached.at < ICS_TTL_MS) return cached;
+  try {
+    if (typeof fetch !== 'function') throw new Error('fetch unavailable');
+    const response = await fetch(source.url, {
+      headers: { accept: 'text/calendar, text/plain;q=0.9, */*;q=0.5', 'user-agent': 'dsh-calendar-board/1.2' },
+      signal: AbortSignal.timeout(ICS_TIMEOUT_MS),
+    });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const text = await response.text();
+    if (!/BEGIN:VCALENDAR/i.test(text)) throw new Error('not an iCalendar feed');
+    const events = parseIcs(text);
+    const entry = { at: now, events, error: null };
+    icsCache.set(source.id, entry);
+    return entry;
+  } catch (error) {
+    const entry = { at: now, events: cached ? cached.events : [], error: String((error && error.message) || error) };
+    icsCache.set(source.id, entry);
+    return entry;
+  }
+}
+
+function windowBounds(input = {}) {
+  const parse = (value) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || ''));
+    return match ? new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3])) : null;
+  };
+  const today = new Date();
+  const from = parse(input.from) || new Date(today.getFullYear(), today.getMonth(), 1);
+  const to = parse(input.to) || new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  from.setHours(0, 0, 0, 0);
+  to.setHours(23, 59, 59, 999);
+  return { from, to };
+}
+
+/** Every subscribed calendar, expanded into the window. */
+export async function listCalendarEvents(input = {}) {
+  const { from, to } = windowBounds(input);
+  const store = await readSources();
+  const feeds = store.sources.filter((source) => source.enabled !== false);
+  const events = [];
+  const status = [];
+  await Promise.all(feeds.map(async (source) => {
+    const feed = await loadFeed(source);
+    const byDay = eventsByDay(feed.events, from, to);
+    status.push({ id: source.id, name: source.name, color: source.color, error: feed.error, count: byDay.size });
+    for (const [date, list] of byDay) {
+      for (const item of list) {
+        events.push(Object.assign({ sourceId: source.id, sourceName: source.name, color: source.color, date }, item));
+      }
+    }
+  }));
+  events.sort((a, b) => (a.date === b.date ? (a.time || '00:00').localeCompare(b.time || '00:00') : a.date.localeCompare(b.date)));
+  return { ok: true, from: from.toISOString(), to: to.toISOString(), sources: status, events };
+}
+
 /* ------------------------------------------------------------------- HTTP */
 
 function sendJson(res, status, payload) {
@@ -285,11 +459,16 @@ export function apply(ctx) {
         'Read and change the user\'s "日历看板 / Calendar Board" entries — one task list per day, the same one the calendar panel edits. ' +
         'Use it whenever the user asks what is on their calendar, today or this week, or asks you to add, reschedule, complete or delete a daily item. ' +
         'Dates are local calendar days (YYYY-MM-DD); "today" is resolved when date is omitted. ' +
-        'Actions: list (filter by date or from/to), add (title, optional date/time "HH:MM"/repeat "daily"), update (id + fields), complete (id, optional date, done), remove (id).',
+        'Actions: list (filter by date or from/to), add (title, optional date/time "HH:MM"/repeat "daily"), update (id + fields), complete (id, optional date, done), remove (id). ' +
+        'Calendar subscriptions: sources (list the local, scheduled and subscribed calendars with their colors), events (events of every subscribed iCalendar feed in a window), subscribe (name + iCal url such as a Google/Feishu secret iCal address), unsubscribe (id), toggleSource (id + enabled).',
       parameters: {
         type: 'object',
         properties: {
-          action: { type: 'string', enum: ['list', 'add', 'update', 'complete', 'remove'], description: 'Operation to perform.' },
+          action: {
+            type: 'string',
+            enum: ['list', 'add', 'update', 'complete', 'remove', 'sources', 'events', 'subscribe', 'unsubscribe', 'toggleSource'],
+            description: 'Operation to perform.',
+          },
           date: { type: 'string', description: 'YYYY-MM-DD. list: one day. add: defaults to today. complete: defaults to the item date.' },
           from: { type: 'string', description: 'list only: inclusive start date YYYY-MM-DD.' },
           to: { type: 'string', description: 'list only: inclusive end date YYYY-MM-DD.' },
@@ -301,6 +480,9 @@ export function apply(ctx) {
           color: { type: 'string', enum: ['', 'red', 'amber', 'green', 'blue'], description: 'Optional text color.' },
           underline: { type: 'boolean', description: 'Optional underline.' },
           done: { type: 'boolean', description: 'complete only: true marks done (default), false unmarks.' },
+          url: { type: 'string', description: 'subscribe only: the http(s) iCal address (webcal:// is accepted and rewritten).' },
+          name: { type: 'string', description: 'subscribe only: a short label for the calendar; defaults to its host.' },
+          enabled: { type: 'boolean', description: 'toggleSource only: show or hide the subscription (default true).' },
         },
         required: ['action'],
         additionalProperties: false,
@@ -324,6 +506,16 @@ export function apply(ctx) {
             return setDone(input);
           case 'remove':
             return removeItem(input);
+          case 'sources':
+            return listSources();
+          case 'events':
+            return listCalendarEvents(input);
+          case 'subscribe':
+            return addSource(input);
+          case 'unsubscribe':
+            return removeSource(input);
+          case 'toggleSource':
+            return setSourceEnabled(input);
           default:
             throw new Error('unknown action: ' + String(input.action));
         }
@@ -362,6 +554,50 @@ export function apply(ctx) {
       }
     },
   }), 'calendar-board items route');
+
+  ctx.effect(() => webServer.register({
+    kind: 'exact',
+    path: ROUTE_SOURCES,
+    handler: async (req, res) => {
+      try {
+        if (req.method === 'GET') {
+          sendJson(res, 200, await listSources());
+          return;
+        }
+        if (req.method === 'POST') {
+          const payload = JSON.parse((await readBody(req)) || '{}');
+          if (payload.action === 'add') sendJson(res, 200, await addSource(payload));
+          else if (payload.action === 'remove') sendJson(res, 200, await removeSource(payload));
+          else if (payload.action === 'toggle') sendJson(res, 200, await setSourceEnabled(payload));
+          else sendJson(res, 400, { ok: false, error: 'unknown action' });
+          return;
+        }
+        sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: String((error && error.message) || error) });
+      }
+    },
+  }), 'calendar-board sources route');
+
+  ctx.effect(() => webServer.register({
+    kind: 'exact',
+    path: ROUTE_EVENTS,
+    handler: async (req, res) => {
+      if (req.method && req.method !== 'GET') {
+        sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+        return;
+      }
+      try {
+        const url = new URL(req.url || '/', 'http://127.0.0.1');
+        sendJson(res, 200, await listCalendarEvents({
+          from: url.searchParams.get('from') || '',
+          to: url.searchParams.get('to') || '',
+        }));
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: String((error && error.message) || error) });
+      }
+    },
+  }), 'calendar-board events route');
 
   let schedules = { at: 0, entries: null };
   ctx.effect(() => webServer.register({
