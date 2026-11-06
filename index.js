@@ -581,7 +581,7 @@ function readBody(req, limit = 1024 * 1024) {
  * them, so an undeclared plugin silently registered nothing: no tool, no routes,
  * and the panel reported "scheduled reminders unavailable".
  */
-export const inject = ['tools', 'schedule'];
+export const inject = ['tools'];
 
 export function apply(ctx) {
   const api = {
@@ -671,7 +671,7 @@ export function apply(ctx) {
     }), 'calendar-board tool');
   }
 
-  function attachRoutes(owner, webServer) {
+  function attachCoreRoutes(owner, webServer) {
   owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_ITEMS,
@@ -758,6 +758,10 @@ export function apply(ctx) {
     },
   }), 'calendar-board events route');
 
+  }
+
+  /** The schedules route only makes sense while a schedule service exists. */
+  function attachScheduleRoute(owner, webServer, schedule) {
   let schedules = { at: 0, entries: null };
   owner.effect(() => webServer.register({
     kind: 'exact',
@@ -768,7 +772,6 @@ export function apply(ctx) {
         return;
       }
       try {
-        const schedule = owner.get('schedule') || ctx.get('schedule');
         if (!schedule || typeof schedule.catalog !== 'function') throw new Error('schedule service unavailable');
         const now = Date.now();
         if (!schedules.entries || now - schedules.at > SCHEDULE_CACHE_MS) {
@@ -783,16 +786,24 @@ export function apply(ctx) {
   }), 'calendar-board schedules route');
   }
 
-  const direct = ctx.get('webServer');
-  if (direct && typeof direct.register === 'function') {
-    attachRoutes(ctx, direct);
-  } else if (typeof ctx.inject === 'function') {
-    ctx.inject(['webServer'], function (webCtx) {
-      const service = (webCtx && webCtx.webServer) || (webCtx && webCtx.get && webCtx.get('webServer'));
-      if (service && typeof service.register === 'function') attachRoutes(webCtx, service);
-      else console.warn('[calendar-board] webServer service is not available: HTTP routes are disabled');
-    });
+  const webServer = ctx.get('webServer');
+  if (webServer && typeof webServer.register === 'function') {
+    attachCoreRoutes(ctx, webServer);
   } else {
     console.warn('[calendar-board] webServer service is not available: HTTP routes are disabled');
+  }
+
+  if (webServer) {
+    try {
+      if (typeof ctx.inject === 'function') {
+        ctx.inject(['schedule'], function (injected) {
+          const schedule = injected && typeof injected.get === 'function' ? injected.get('schedule') : undefined;
+          if (schedule && typeof schedule.catalog === 'function') attachScheduleRoute(ctx, webServer, schedule);
+          else console.warn('[calendar-board] schedule service is not available: the schedules route is disabled');
+        });
+      }
+    } catch (error) {
+      console.warn('[calendar-board] schedule route not attached:', error && error.message);
+    }
   }
 }
