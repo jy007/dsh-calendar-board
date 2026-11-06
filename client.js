@@ -1290,9 +1290,12 @@ window.__ModuleLoader__.load({
 
         function loadLocalCalendars() {
           fetch('/calendar-board/calendars?provider=local', { headers: { accept: 'application/json' } })
-            .then(function (response) { return response && response.ok ? response.json() : null; })
+            .then(function (response) {
+              if (!response || !response.ok) throw new Error('HTTP ' + (response ? response.status : 'network'));
+              return response.json();
+            })
             .then(function (payload) {
-              if (!payload || payload.ok !== true) throw new Error((payload && payload.error) || 'failed');
+              if (!payload || payload.ok !== true) throw new Error((payload && payload.error) || 'unexpected response');
               setLocalCals({ loaded: true, error: '', items: Array.isArray(payload.calendars) ? payload.calendars : [] });
             })
             .catch(function (error) {
