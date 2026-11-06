@@ -184,6 +184,7 @@ Edits to `client.js` hot-reload; edits to `index.js` (the Host half) need a DSH 
 
 ## Changelog
 
+- **1.5.1** — works on DSH 0.2.2 (2.0.22-next): services must be declared in `export const inject` as a name array, so the tool and HTTP routes register again; the local calendar picker no longer throws when opened
 - **1.5.0** — scheduled reminders now appear only for today and tomorrow, coloured by run state (due today red, tomorrow amber, ran/expired grey) and refreshed every 30s; the legend's "My entries" and "Scheduled" chips now really hide their layer; the Google OAuth provider is removed, so calendar sources are iCal subscriptions and this Mac's calendars only
 - **1.4.0** — local calendar reading on macOS through Calendar.app (no OAuth client, no iCal address), with a picker in the connect panel and background caching
 - **1.3.0** — Google Calendar sign-in: OAuth 2.0 + PKCE with a loopback redirect, token refresh, `calendarList` + `events.list` sync, and `connect` / `disconnect` / `accounts` / `calendars` tool actions

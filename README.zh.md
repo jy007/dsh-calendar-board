@@ -184,6 +184,7 @@ dsh-calendar-board/
 
 ## 更新日志
 
+- **1.5.1** — 适配 DSH 0.2.2（2.0.22-next）：服务必须在 `export const inject` 里以数组声明，工具与 HTTP 路由因此恢复注册；本机日历面板打开时不再抛错
 - **1.5.0** — 定时任务只在今天和明天显示，并按运行状态配色（今日待运行红、明日未运行黄、已运行/已过期灰），每 30 秒刷新；图例里的「我的事项」「定时任务」现在会真正隐藏对应内容；移除 Google OAuth，日历来源只剩 iCal 订阅与本机日历
 - **1.4.0** — macOS 本机日历读取（走 Calendar.app，零 OAuth、零地址粘贴），连接面板里可选日历，后台读取并缓存
 - **1.3.0** — Google 日历授权登录：OAuth 2.0 + PKCE、回环重定向、token 刷新、`calendarList` + `events.list` 同步；工具新增 `connect` / `disconnect` / `accounts` / `calendars`
