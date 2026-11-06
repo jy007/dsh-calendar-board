@@ -15,8 +15,6 @@
 
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { eventsByDay, parseIcs } from './ics.js';
-import { REDIRECT_URI, PROVIDERS, beginAttempt, createTokenStore, refreshAccessToken } from './oauth.js';
-import { listCalendars, listCalendarEvents as listGoogleEvents } from './google.js';
 import { isSupported as localSupported, listCalendars as listLocalCalendars, readEvents as readLocalEvents } from './local.js';
 import { homedir } from 'node:os';
 import path from 'node:path';
@@ -24,7 +22,6 @@ import path from 'node:path';
 const ROUTE_ITEMS = '/calendar-board/items';
 const ROUTE_SOURCES = '/calendar-board/sources';
 const ROUTE_EVENTS = '/calendar-board/events';
-const ROUTE_OAUTH = '/calendar-board/oauth';
 const ROUTE_CALENDARS = '/calendar-board/calendars';
 const ROUTE_SCHEDULES = '/calendar-board/schedules';
 const SCHEDULE_CACHE_MS = 10000;
@@ -326,7 +323,11 @@ export async function listSources() {
 }
 
 export async function addSource(input = {}) {
-  if (String(input.provider || input.kind || '') === 'local') {
+  const requested = String(input.provider || input.kind || '');
+  if (requested && requested !== 'local' && requested !== 'ics') {
+    throw new Error('unsupported provider "' + requested + '": use "local" for this Mac\'s calendars, or pass an iCal url');
+  }
+  if (requested === 'local') {
     if (!localSupported()) throw new Error('local calendars are only available on macOS');
     const calendarName = String(input.calendarId || input.name || '').trim();
     if (!calendarName) throw new Error('calendarId (the calendar name) is required');
@@ -335,14 +336,6 @@ export async function addSource(input = {}) {
       throw new Error('no local calendar named ' + calendarName);
     }
     const source = await ensureSource('local', calendarName, calendarName, input.color);
-    return { ok: true, source: publicSource(source) };
-  }
-  if (String(input.provider || input.kind || '') === 'google') {
-    const record = await tokenStore.read('google');
-    if (!record || !record.refreshToken) throw new Error('not connected to Google: authorize it first');
-    const calendarId = String(input.calendarId || 'primary');
-    const known = (record.calendars || []).find((calendar) => calendar.id === calendarId);
-    const source = await ensureGoogleSource(calendarId, input.name || (known && known.name) || 'Google', input.color);
     return { ok: true, source: publicSource(source) };
   }
   const store = await readSources();
@@ -431,28 +424,6 @@ async function loadFeed(source, from, to) {
     return { at: 0, events: [], error: null, pending: true };
   }
 
-  if (source.kind === 'google') {
-    const key = source.id + '|' + from.toISOString() + '|' + to.toISOString();
-    const hit = googleCache.get(key);
-    const stamp = Date.now();
-    if (hit && stamp - hit.at < ICS_TTL_MS) return hit;
-    try {
-      const { provider, token } = await accessTokenFor(source.provider || 'google');
-      const events = await listGoogleEvents(provider, token, {
-        calendarId: source.calendarId || 'primary',
-        timeMin: from,
-        timeMax: to,
-      });
-      const entry = { at: stamp, events, error: null };
-      googleCache.set(key, entry);
-      return entry;
-    } catch (error) {
-      const entry = { at: stamp, events: hit ? hit.events : [], error: String((error && error.message) || error) };
-      googleCache.set(key, entry);
-      return entry;
-    }
-  }
-
   const cached = icsCache.get(source.id);
   const now = Date.now();
   if (cached && now - cached.at < ICS_TTL_MS) return cached;
@@ -529,54 +500,11 @@ export async function listCalendarEvents(input = {}) {
   return { ok: true, from: from.toISOString(), to: to.toISOString(), sources: status, events };
 }
 
-/* ---------------------------------------------------------------- accounts */
+/* ---------------------------------------------------------------- sources */
 
-const tokenStore = createTokenStore({ dir: STORE_DIR, credentials: null });
-const googleCache = new Map();
 const localCache = new Map();
 const localPending = new Set();
 const localBatches = new Map();
-let attempt = null;
-
-/** Wire the credential store once apply() has the context. */
-export function bindCredentials(ctx) {
-  const credentials = ctx.get('credentials');
-  tokenStore.credentials = credentials && typeof credentials.readRecord === 'function' ? credentials : null;
-}
-
-function readEnvClient(provider) {
-  return {
-    clientId: String(process.env[provider.clientIdEnv] || '').trim(),
-    clientSecret: String(process.env[provider.clientSecretEnv] || '').trim(),
-  };
-}
-
-async function providerClient(providerId) {
-  const provider = PROVIDERS[providerId];
-  if (!provider) throw new Error('unknown provider ' + providerId);
-  const record = await tokenStore.read(providerId);
-  const env = readEnvClient(provider);
-  return {
-    provider,
-    record,
-    clientId: (record && record.clientId) || env.clientId,
-    clientSecret: (record && record.clientSecret) || env.clientSecret,
-  };
-}
-
-/** Valid access token, refreshing and persisting when it is about to expire. */
-async function accessTokenFor(providerId) {
-  const { provider, record, clientId, clientSecret } = await providerClient(providerId);
-  if (!record || !record.refreshToken) throw new Error('not connected: authorize ' + providerId + ' first');
-  if (!clientId) throw new Error('missing client id for ' + providerId);
-  if (record.accessToken && record.expiresAt && record.expiresAt - Date.now() > 60000) {
-    return { provider, token: record.accessToken, record };
-  }
-  const fresh = await refreshAccessToken(provider, record, { clientId, clientSecret });
-  const next = Object.assign({}, record, fresh);
-  await tokenStore.write(providerId, next);
-  return { provider, token: fresh.accessToken, record: next };
-}
 
 async function ensureSource(kind, calendarId, name, color) {
   const store = await readSources();
@@ -595,125 +523,23 @@ async function ensureSource(kind, calendarId, name, color) {
   return source;
 }
 
-async function ensureGoogleSource(calendarId, name, color) {
-  return ensureSource('google', calendarId, name, color);
-}
-
-export async function startOAuth(input = {}) {
-  const providerId = String(input.provider || 'google');
-  const provider = PROVIDERS[providerId];
-  if (!provider) throw new Error('unknown provider ' + providerId);
-  if (attempt) {
-    attempt.close();
-    attempt = null;
-  }
-  const stored = await tokenStore.read(providerId);
-  const env = readEnvClient(provider);
-  const clientId = String(input.clientId || (stored && stored.clientId) || env.clientId || '').trim();
-  const clientSecret = String(input.clientSecret || (stored && stored.clientSecret) || env.clientSecret || '').trim();
-  if (!clientId) throw new Error('client id is required');
-
-  const current = beginAttempt(provider, { clientId, clientSecret });
-  attempt = current;
-  current.exchange().then(async (tokens) => {
-    let calendars = [];
-    try {
-      calendars = await listCalendars(provider, tokens.accessToken);
-    } catch (error) {
-      calendars = [];
-    }
-    const primary = calendars.find((calendar) => calendar.primary) || calendars[0] || null;
-    await tokenStore.write(providerId, Object.assign({
-      provider: providerId,
-      clientId,
-      clientSecret,
-    }, tokens, {
-      account: primary ? primary.name : '',
-      calendars: calendars.map((calendar) => ({ id: calendar.id, name: calendar.name, primary: calendar.primary })),
-    }));
-    await ensureGoogleSource(primary ? primary.id : 'primary', primary ? primary.name : 'Google');
-    if (attempt === current) attempt = null;
-  }).catch((error) => {
-    console.warn('[calendar-board] oauth attempt failed:', error && error.message);
-    if (attempt === current) attempt = null;
-  });
-
-  return { ok: true, provider: providerId, url: current.url, redirectUri: REDIRECT_URI };
-}
-
-export async function oauthStatus(input = {}) {
-  const providerId = String(input.provider || 'google');
-  const provider = PROVIDERS[providerId];
-  if (!provider) throw new Error('unknown provider ' + providerId);
-  const stored = await tokenStore.read(providerId);
-  const env = readEnvClient(provider);
+/** The calendars this Mac already syncs, with the ones on the board marked. */
+export async function listLocalCalendarChoices() {
+  if (!localSupported()) return { ok: true, provider: 'local', supported: false, calendars: [] };
+  const known = await listLocalCalendars();
+  const store = await readSources();
+  const subscribed = new Map(
+    store.sources.filter((source) => source.kind === 'local').map((source) => [source.calendarId, source.id]),
+  );
   return {
     ok: true,
-    provider: providerId,
-    connected: Boolean(stored && stored.refreshToken),
-    pending: Boolean(attempt),
-    hasClientId: Boolean((stored && stored.clientId) || env.clientId),
-    account: (stored && stored.account) || '',
-    calendars: (stored && stored.calendars) || [],
-    redirectUri: REDIRECT_URI,
-  };
-}
-
-export async function disconnectProvider(input = {}) {
-  const providerId = String(input.provider || 'google');
-  const provider = PROVIDERS[providerId];
-  if (!provider) throw new Error('unknown provider ' + providerId);
-  if (attempt) {
-    attempt.close();
-    attempt = null;
-  }
-  await tokenStore.remove(providerId);
-  googleCache.clear();
-  const store = await readSources();
-  const next = store.sources.filter((source) => !(source.kind === 'google' && (source.provider || 'google') === providerId));
-  await persistSources({ version: 1, sources: next });
-  return { ok: true, provider: providerId, removedSources: store.sources.length - next.length };
-}
-
-export async function listProviderCalendars(input = {}) {
-  const provider = String(input.provider || 'google');
-  if (provider === 'local') {
-    if (!localSupported()) return { ok: true, provider: 'local', supported: false, calendars: [] };
-    const known = await listLocalCalendars();
-    const store = await readSources();
-    const subscribed = new Map(
-      store.sources.filter((source) => source.kind === 'local').map((source) => [source.calendarId, source.id]),
-    );
-    return {
-      ok: true,
-      provider: 'local',
-      supported: true,
-      calendars: known.map((calendar) => ({
-        id: calendar.id,
-        name: calendar.name,
-        primary: false,
-        subscribed: subscribed.has(calendar.id),
-        sourceId: subscribed.get(calendar.id) || '',
-      })),
-    };
-  }
-  const result = await listGoogleCalendars();
-  return Object.assign({ provider: 'google', supported: true }, result);
-}
-
-export async function listGoogleCalendars() {
-  const { provider, token, record } = await accessTokenFor('google');
-  const calendars = await listCalendars(provider, token);
-  const store = await readSources();
-  const subscribed = new Set(store.sources.filter((source) => source.kind === 'google').map((source) => source.calendarId));
-  return {
-    ok: true,
-    account: (record && record.account) || '',
-    calendars: calendars.map((calendar) => ({
+    provider: 'local',
+    supported: true,
+    calendars: known.map((calendar) => ({
       id: calendar.id,
       name: calendar.name,
-      primary: calendar.primary,
       subscribed: subscribed.has(calendar.id),
+      sourceId: subscribed.get(calendar.id) || '',
     })),
   };
 }
@@ -751,12 +577,10 @@ function readBody(req, limit = 1024 * 1024) {
 /* ------------------------------------------------------------------ apply */
 
 export function apply(ctx) {
-  bindCredentials(ctx);
-
   const api = {
     listItems, addItem, updateItem, setDone, removeItem, replaceItems,
     listSources, addSource, removeSource, setSourceEnabled,
-    listCalendarEvents, startOAuth, oauthStatus, disconnectProvider, listGoogleCalendars,
+    listCalendarEvents, listLocalCalendarChoices,
   };
   try {
     ctx.effect(() => ctx.provide('calendarBoard', api), 'calendar-board service');
@@ -779,7 +603,7 @@ export function apply(ctx) {
         properties: {
           action: {
             type: 'string',
-            enum: ['list', 'add', 'update', 'complete', 'remove', 'sources', 'events', 'subscribe', 'unsubscribe', 'toggleSource', 'accounts', 'calendars', 'connect', 'disconnect'],
+            enum: ['list', 'add', 'update', 'complete', 'remove', 'sources', 'events', 'subscribe', 'unsubscribe', 'toggleSource', 'calendars'],
             description: 'Operation to perform.',
           },
           date: { type: 'string', description: 'YYYY-MM-DD. list: one day. add: defaults to today. complete: defaults to the item date.' },
@@ -796,10 +620,8 @@ export function apply(ctx) {
           url: { type: 'string', description: 'subscribe only: the http(s) iCal address (webcal:// is accepted and rewritten).' },
           name: { type: 'string', description: 'subscribe only: a short label for the calendar; defaults to its host.' },
           enabled: { type: 'boolean', description: 'toggleSource only: show or hide the subscription (default true).' },
-          provider: { type: 'string', enum: ['google', 'local'], description: 'subscribe/accounts/calendars/connect/disconnect: calendar provider ("local" = this Mac\'s Calendar.app, which already holds synced Google/Feishu accounts).' },
-          calendarId: { type: 'string', description: 'subscribe only (Google): the calendar id to follow, "primary" for the main calendar.' },
-          clientId: { type: 'string', description: 'connect only: the OAuth client id registered for the provider.' },
-          clientSecret: { type: 'string', description: 'connect only: the OAuth client secret (not needed by every provider).' },
+          provider: { type: 'string', enum: ['local'], description: 'subscribe/calendars: "local" = a calendar already synced into this Mac\'s Calendar.app (Google/Feishu/Outlook accounts included).' },
+          calendarId: { type: 'string', description: 'subscribe only (local): the calendar name as Calendar.app lists it.' },
         },
         required: ['action'],
         additionalProperties: false,
@@ -833,14 +655,8 @@ export function apply(ctx) {
             return removeSource(input);
           case 'toggleSource':
             return setSourceEnabled(input);
-          case 'accounts':
-            return oauthStatus(input);
           case 'calendars':
-            return listProviderCalendars(input);
-          case 'connect':
-            return startOAuth(input);
-          case 'disconnect':
-            return disconnectProvider(input);
+            return listLocalCalendarChoices();
           default:
             throw new Error('unknown action: ' + String(input.action));
         }
@@ -910,37 +726,12 @@ export function apply(ctx) {
     handler: async (req, res) => {
       try {
         const url = new URL(req.url || '/', 'http://127.0.0.1');
-        sendJson(res, 200, await listProviderCalendars({ provider: url.searchParams.get('provider') || 'google' }));
+        sendJson(res, 200, await listLocalCalendarChoices());
       } catch (error) {
         sendJson(res, 400, { ok: false, error: String((error && error.message) || error) });
       }
     },
   }), 'calendar-board calendars route');
-
-  ctx.effect(() => webServer.register({
-    kind: 'prefix',
-    path: ROUTE_OAUTH,
-    handler: async (req, res) => {
-      try {
-        const url = new URL(req.url || '/', 'http://127.0.0.1');
-        const action = url.pathname.slice(ROUTE_OAUTH.length + 1) || 'status';
-        if (req.method === 'GET') {
-          sendJson(res, 200, await oauthStatus({ provider: url.searchParams.get('provider') || 'google' }));
-          return;
-        }
-        if (req.method === 'POST') {
-          const payload = JSON.parse((await readBody(req)) || '{}');
-          if (action === 'start') sendJson(res, 200, await startOAuth(payload));
-          else if (action === 'disconnect') sendJson(res, 200, await disconnectProvider(payload));
-          else sendJson(res, 400, { ok: false, error: 'unknown oauth action' });
-          return;
-        }
-        sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
-      } catch (error) {
-        sendJson(res, 400, { ok: false, error: String((error && error.message) || error) });
-      }
-    },
-  }), 'calendar-board oauth route');
 
   ctx.effect(() => webServer.register({
     kind: 'exact',

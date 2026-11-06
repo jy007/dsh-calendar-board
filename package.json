@@ -14,9 +14,7 @@
     "index.js",
     "client.js",
     "ics.js",
-    "google.js",
     "local.js",
-    "oauth.js",
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg"

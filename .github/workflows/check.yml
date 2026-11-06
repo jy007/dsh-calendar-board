@@ -25,7 +25,7 @@ jobs:
           if (pkg.dsh?.bundle?.patch !== './cordis.patch.yml') throw new Error('missing dsh.bundle.patch');
           if (!pkg.dsh?.client?.platform) throw new Error('missing dsh.client.platform');
           if (pkg.exports['./client'] !== './client.js') throw new Error('missing ./client export');
-          for (const file of ['index.js', 'client.js', 'ics.js', 'google.js', 'oauth.js', 'local.js', 'cordis.patch.yml', 'icon.svg']) {
+          for (const file of ['index.js', 'client.js', 'ics.js', 'local.js', 'cordis.patch.yml', 'icon.svg']) {
             if (!fs.existsSync(file)) throw new Error('missing ' + file);
           }
           for (const locale of ['zh', 'en']) {
@@ -68,22 +68,6 @@ jobs:
             if (weekly.length < 8) throw new Error('expanded only ' + weekly.length + ' weekly occurrences');
             if (!byDay.get('2026-11-07').some((e) => e.allDay)) throw new Error('all-day event missing');
             console.log('ics ok:', weekly.length, 'weekly occurrences');
-          });
-          "
-      - name: OAuth PKCE and authorize URL
-        run: |
-          node -e "
-          process.env.CALENDAR_BOARD_GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
-          import('./oauth.js').then(({ PROVIDERS, createPkce, buildAuthorizeUrl, REDIRECT_URI }) => {
-            const { verifier, challenge } = createPkce();
-            if (!/^[A-Za-z0-9_-]{43,}$/.test(verifier)) throw new Error('verifier shape');
-            const url = new URL(buildAuthorizeUrl(PROVIDERS.google, { clientId: 'cid', state: 'st', challenge }));
-            if (url.searchParams.get('code_challenge_method') !== 'S256') throw new Error('pkce method');
-            if (url.searchParams.get('code_challenge') !== challenge) throw new Error('pkce challenge mismatch');
-            if (url.searchParams.get('redirect_uri') !== REDIRECT_URI) throw new Error('redirect uri');
-            if (!url.searchParams.get('scope').includes('calendar.readonly')) throw new Error('scope');
-            if (url.searchParams.get('access_type') !== 'offline') throw new Error('offline access');
-            console.log('oauth url ok:', REDIRECT_URI);
           });
           "
       - name: Client module survives repeated evaluation

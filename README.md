@@ -29,11 +29,6 @@ A month-view calendar board for [DeepSeek Harness](https://deepseek.com) desktop
 - Open **+ 连接日历**, pick the calendars to show, done. The first read raises the system Automation prompt for Calendar
 - Reads run in the background and are cached, so a big calendar never blocks the month view
 
-**Google Calendar sign-in (OAuth)**
-- Connect with your own Google OAuth client, then the board reads `calendarList` and `events.list` — no secret iCal address to copy, tokens refresh on their own
-- Authorization-code flow with PKCE, loopback redirect `http://127.0.0.1:19871/calendar-board/oauth/callback`, read-only scope
-- Tokens go to DSH's credential store when it is mounted, otherwise to a `0600` file under the board's storage directory
-
 **Calendar subscriptions**
 - Subscribe to any iCalendar feed — the secret iCal address Google Calendar, Feishu/Lark, Outlook or Apple Calendar hands out — and its events appear beside your own tasks
 - Every source has its own color; the legend under the header toggles each source on or off
@@ -76,14 +71,6 @@ Then ask your DSH agent to install `~/plugins/dsh-calendar-board` as a bundle, o
 ### Use the calendars already on this Mac
 
 Click **+ 连接日历** and pick from the **本机日历（macOS）** list. The first read asks macOS to let DSH control *Calendar* (System Settings → Privacy & Security → Automation); allow it once.
-
-### Connect Google Calendar (OAuth)
-
-1. In [Google Cloud Console](https://console.cloud.google.com/): create a project, enable **Google Calendar API**, then create an OAuth client of type **Desktop app**.
-2. Add the redirect URI `http://127.0.0.1:19871/calendar-board/oauth/callback` to that client.
-3. In the board, click **+ 连接日历**, paste the client ID (and secret), then **开始授权** — the browser opens Google's consent page; approve it and come back.
-
-You can also set `CALENDAR_BOARD_GOOGLE_CLIENT_ID` / `CALENDAR_BOARD_GOOGLE_CLIENT_SECRET` in the environment instead of pasting them.
 
 ### Update
 
@@ -129,11 +116,8 @@ Every action answers with the same envelope: `{ "ok": true, ... }` — `list` ad
 | `subscribe` | `name`, `url` | add an iCal subscription (`webcal://` is normalised) |
 | `unsubscribe` | `id` | remove a subscription |
 | `toggleSource` | `id`, `enabled` | hide or show one source |
-| `accounts` | `provider` | whether a provider is connected, its account and calendars |
-| `connect` | `clientId`, `clientSecret` | start an OAuth attempt and return the URL to open |
-| `calendars` | `provider` | the calendars available from `google` or `local` (this Mac) |
-| `subscribe` | `provider`, `calendarId`, `color` | follow one Google or local calendar |
-| `disconnect` | `provider` | forget the tokens and drop that provider's sources |
+| `calendars` | – | the calendars this Mac already syncs (with the ones on the board marked) |
+| `subscribe` | `provider:"local"`, `calendarId`, `color` | add one of this Mac's calendars |
 
 Things you can simply say to your agent:
 
@@ -150,7 +134,6 @@ Other plugins can call the same implementation through the `calendarBoard` Host 
 | Your entries | `<DSH_HOME>/storages/calendar-board/items.json` on the Host; the page keeps a localStorage cache |
 | Subscribed iCal addresses | `<DSH_HOME>/storages/calendar-board/sources.json`; their events are cached in memory only |
 | Which legend chips are off | browser localStorage: `dsh-calendar-board.hidden-sources.v1` |
-| OAuth tokens | DSH credential store (`calendar-board:google`); a `0600` JSON file in the storage directory when that service is absent |
 | Sound preference | `dsh-calendar-board.sound.v1` |
 | Daily nudge preference | `dsh-calendar-board.notify.v1` |
 | Scheduled reminders | read-only, from the DSH `schedule` service, never stored |
@@ -201,6 +184,7 @@ Edits to `client.js` hot-reload; edits to `index.js` (the Host half) need a DSH 
 
 ## Changelog
 
+- **Unreleased** — removed the Google OAuth provider: calendar sources are iCal subscriptions plus this Mac's calendars, so nothing has to be registered
 - **1.4.0** — local calendar reading on macOS through Calendar.app (no OAuth client, no iCal address), with a picker in the connect panel and background caching
 - **1.3.0** — Google Calendar sign-in: OAuth 2.0 + PKCE with a loopback redirect, token refresh, `calendarList` + `events.list` sync, and `connect` / `disconnect` / `accounts` / `calendars` tool actions
 - **1.2.0** — calendar subscriptions: iCal feeds (Google / Feishu / Outlook / Apple) with per-source colors, a legend that toggles each source, and `sources` / `events` / `subscribe` / `unsubscribe` / `toggleSource` tool actions
