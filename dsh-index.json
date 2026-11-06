@@ -78,20 +78,20 @@
           "农历"
         ],
         "sortKeys": {
-          "published": 1793934656
+          "published": 1793934805
         }
       },
       "dist-tags": {
-        "latest": "1.2.0"
+        "latest": "1.2.1"
       },
       "versions": [
         {
-          "version": "1.2.0",
-          "publishTimestamp": 1793934656,
+          "version": "1.2.1",
+          "publishTimestamp": 1793934805,
           "source": {
             "type": "git",
             "url": "https://github.com/jy007/dsh-calendar-board",
-            "commit": "c72c112f96cd4f1298b4430b4ed805406244cc03"
+            "commit": "2323b8a673fb6fc1de89aca9ca93592ebf0f1daa"
           },
           "engines": {
             "dsh": ">=0.2.1-rc.2"
