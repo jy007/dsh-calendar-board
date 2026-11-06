@@ -122,6 +122,20 @@ No network requests beyond DSH's own local HTTP port. The panel footer shows `�
 - Registers the Client slots `sidebar.panellist` (icon) and `main` (panel)
 - Optional Host services: `schedule` (without it the header shows "Scheduled reminders unavailable" and everything else still works) and `webServer` (without it only the remote channel is used)
 
+## Publishing / using this repo as an index source
+
+This repository ships its own [format-1 market index](https://github.com/deepseek-ai/deepseek-harness/blob/master/.agents/notes/implemented/feature/2026-10-02-plugin-market-index-format.md) at `dsh-index.json`, so it can be added to DSH as a plugin source without any server:
+
+```
+https://cdn.jsdelivr.net/gh/jy007/dsh-calendar-board@main/dsh-index.json
+```
+
+Open **Plugins → Discover → Add index source**, paste that URL, and the plugin shows up searchable with a one-click install.
+
+To reach the wider community market, submit the repo to [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) (PR against its list); its catalog is republished daily as the index most DSH markets consume.
+
+Every market-listed version must declare `engines.dsh`; this package declares `>=0.2.1-rc.2` (the DSH runtime bundled with DSH Desktop NEXT 2.0.19).
+
 ## Development
 
 ```

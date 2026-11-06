@@ -122,6 +122,20 @@ Host 半是唯一的数据源，所以**任何 DSH 会话**都能通过一个工
 - 使用 Client slots：`sidebar.panellist`（图标）、`main`（面板）
 - 可选依赖 Host 服务 `schedule`（缺失时顶栏显示「定时任务不可用」，其余功能正常）与 `webServer`（缺失时只用 remote 通道）
 
+## 发布 / 作为索引源
+
+本仓库自带一份 [format 1 市场索引](https://github.com/deepseek-ai/deepseek-harness/blob/master/.agents/notes/implemented/feature/2026-10-02-plugin-market-index-format.md)：`dsh-index.json`，不需要任何服务器就能被 DSH 当成插件源：
+
+```
+https://cdn.jsdelivr.net/gh/jy007/dsh-calendar-board@main/dsh-index.json
+```
+
+在 **插件 → 发现 → 添加索引源** 粘贴上面的地址，就能搜到本插件并一键安装。
+
+想让插件进入更大的社区市场：向 [awesome-dsh-plugin](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin) 提 PR，它的目录每天会被重新发布成大多数 DSH 市场读取的索引。
+
+市场要求每个版本声明 `engines.dsh`；本包声明 `>=0.2.1-rc.2`（DSH Desktop NEXT 2.0.19 内置的运行时）。
+
 ## 开发
 
 ```
