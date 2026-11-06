@@ -576,6 +576,13 @@ function readBody(req, limit = 1024 * 1024) {
 
 /* ------------------------------------------------------------------ apply */
 
+/**
+ * DSH 0.2.2 stopped exposing services to `ctx.get()` unless the plugin declares
+ * them, so an undeclared plugin silently registered nothing: no tool, no routes,
+ * and the panel reported "scheduled reminders unavailable".
+ */
+export const inject = { required: ['tools'], optional: ['webServer', 'schedule'] };
+
 export function apply(ctx) {
   const api = {
     listItems, addItem, updateItem, setDone, removeItem, replaceItems,
@@ -665,7 +672,10 @@ export function apply(ctx) {
   }
 
   const webServer = ctx.get('webServer');
-  if (!webServer || typeof webServer.register !== 'function') return;
+  if (!webServer || typeof webServer.register !== 'function') {
+    console.warn('[calendar-board] webServer service is not available: HTTP routes are disabled');
+    return;
+  }
 
   ctx.effect(() => webServer.register({
     kind: 'exact',

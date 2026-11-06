@@ -1751,7 +1751,6 @@ window.__ModuleLoader__.load({
             title: t('connectTitle'),
             onClick: function () {
               setConnectOpen(!connectOpen);
-              setOauthError('');
             },
           }, '+ ' + t('connectCalendar')));
 
