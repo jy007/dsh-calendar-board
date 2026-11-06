@@ -17,7 +17,7 @@
 // "Identifier 'STORE_KEY' has already been declared" on the second load.
 (function () {
 // #region helpers
-const BUILD_TAG = '1.0.1';
+const BUILD_TAG = '1.1.0';
 const STORE_KEY = 'dsh-calendar-board.items.v1';
 const NOTIFY_KEY = 'dsh-calendar-board.notify.v1';
 
@@ -219,6 +219,41 @@ function occurrencesForDay(items, entries, key, t) {
   return out;
 }
 
+/** Coerce one Host item into the shape this page renders. */
+function normalizeClientItem(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const title = String(raw.title == null ? '' : raw.title).trim();
+  const date = String(raw.date || '');
+  if (!title || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const doneDates = Array.isArray(raw.doneDates) ? raw.doneDates.filter(function (d) { return /^\d{4}-\d{2}-\d{2}$/.test(String(d)); }) : [];
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : 'it' + Math.random().toString(36).slice(2, 9),
+    date: date,
+    time: typeof raw.time === 'string' ? raw.time : '',
+    title: title,
+    repeat: raw.repeat === 'daily' ? 'daily' : 'none',
+    doneDates: doneDates,
+    color: typeof raw.color === 'string' ? raw.color : '',
+    underline: raw.underline === true,
+  };
+}
+
+/** Order-independent fingerprint used to detect a real change. */
+function canonicalItems(list) {
+  return JSON.stringify((Array.isArray(list) ? list : []).map(function (item) {
+    return [
+      item.id,
+      item.date,
+      item.time || '',
+      item.title,
+      item.repeat || 'none',
+      (Array.isArray(item.doneDates) ? item.doneDates.slice().sort() : []).join(','),
+      item.color || '',
+      item.underline ? 1 : 0,
+    ];
+  }));
+}
+
 function readItems() {
   try {
     const raw = window.localStorage.getItem(STORE_KEY);
@@ -336,6 +371,8 @@ window.__ModuleLoader__.load({
         ruleEveryHours: function (value) { return '每 ' + value + ' 小时'; },
         cellAdd: '添加事项…',
         scheduleInline: function (count) { return '定时任务 ' + count; },
+        syncHost: '已同步 Host',
+        syncLocal: '仅本机保存',
         cellHint: '点击日期格即可编辑 · 回车保存 · Esc 退出',
         editHint: '点击文字直接修改，失焦自动保存',
         toolsUnderline: '下划线',
@@ -399,6 +436,8 @@ window.__ModuleLoader__.load({
         ruleEveryHours: function (value) { return 'every ' + value + ' h'; },
         cellAdd: 'Add an item…',
         scheduleInline: function (count) { return count + ' scheduled'; },
+        syncHost: 'Synced to Host',
+        syncLocal: 'Local only',
         cellHint: 'Click a day to edit · Enter saves · Esc exits',
         editHint: 'Click the text to edit; changes save on blur',
         toolsUnderline: 'Underline',
@@ -850,6 +889,7 @@ window.__ModuleLoader__.load({
         });
         const [selected, setSelected] = useState(function () { return dateKey(new Date()); });
         const [items, setItems] = useState(readItems);
+        const [sync, setSync] = useState('unknown');
         const [schedule, setSchedule] = useState({ status: 'loading', entries: [], source: null });
         const [notifyOn, setNotifyOn] = useState(readNotifyFlag);
         const [notice, setNotice] = useState('');
@@ -859,6 +899,10 @@ window.__ModuleLoader__.load({
         const [soundOn, setSoundOn] = useState(readSoundFlag);
         const [cheer, setCheer] = useState(null);
         const [fireworks, setFireworks] = useState(0);
+        const itemsRef = useRef(items);
+        const hostRef = useRef('unknown');
+        const dirtyRef = useRef(false);
+        const pushTimerRef = useRef(null);
         const catalogRef = useRef(undefined);
         const inputRef = useRef(null);
         const cellAddRef = useRef(null);
@@ -874,6 +918,93 @@ window.__ModuleLoader__.load({
         useEffect(function () {
           writeItems(items);
         }, [items]);
+
+        function pushToHost(list) {
+          if (hostRef.current !== 'host') return;
+          try {
+            fetch('/calendar-board/items', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ items: list }),
+            }).then(function (response) {
+              if (!response || !response.ok) throw new Error('push refused');
+              dirtyRef.current = false;
+            }).catch(function () {
+              hostRef.current = 'local';
+              setSync('local');
+            });
+          } catch (error) {
+            hostRef.current = 'local';
+            setSync('local');
+          }
+        }
+
+        /** Every mutation goes through here so the Host copy follows the page. */
+        function commitItems(compute) {
+          const next = compute(itemsRef.current);
+          itemsRef.current = next;
+          setItems(next);
+          if (hostRef.current !== 'host') return;
+          dirtyRef.current = true;
+          if (pushTimerRef.current) clearTimeout(pushTimerRef.current);
+          pushTimerRef.current = setTimeout(function () {
+            pushTimerRef.current = null;
+            pushToHost(itemsRef.current);
+          }, 350);
+        }
+
+        useEffect(function () {
+          if (typeof fetch !== 'function') {
+            setSync('local');
+            return undefined;
+          }
+          let cancelled = false;
+          fetch('/calendar-board/items', { headers: { accept: 'application/json' } })
+            .then(function (response) {
+              if (!response || !response.ok) throw new Error('items route refused');
+              return response.json();
+            })
+            .then(function (payload) {
+              if (cancelled) return;
+              if (!payload || payload.ok !== true || !Array.isArray(payload.items)) throw new Error('items payload');
+              hostRef.current = 'host';
+              setSync('host');
+              const remote = payload.items.map(normalizeClientItem).filter(Boolean);
+              const local = itemsRef.current || [];
+              if (remote.length === 0 && local.length > 0) {
+                pushToHost(local);
+                return;
+              }
+              itemsRef.current = remote;
+              setItems(remote);
+              writeItems(remote);
+            })
+            .catch(function () {
+              if (cancelled) return;
+              hostRef.current = 'local';
+              setSync('local');
+            });
+          return function () { cancelled = true; };
+        }, []);
+
+        useEffect(function () {
+          if (sync !== 'host') return undefined;
+          const timer = setInterval(function () {
+            if (dirtyRef.current) return;
+            fetch('/calendar-board/items', { headers: { accept: 'application/json' } })
+              .then(function (response) { return response && response.ok ? response.json() : null; })
+              .then(function (payload) {
+                if (!payload || payload.ok !== true || !Array.isArray(payload.items)) return;
+                const remote = payload.items.map(normalizeClientItem).filter(Boolean);
+                if (canonicalItems(remote) === canonicalItems(itemsRef.current)) return;
+                itemsRef.current = remote;
+                setItems(remote);
+                writeItems(remote);
+              })
+              .catch(function () {});
+          }, 20000);
+          return function () { clearInterval(timer); };
+        }, [sync]);
 
         const loadSchedules = useCallback(function () {
           if (catalogRef.current === undefined) {
@@ -975,7 +1106,7 @@ window.__ModuleLoader__.load({
           const clean = String(title || '').trim();
           if (!clean) return;
           const extra = options || {};
-          setItems(function (prev) {
+          commitItems(function (prev) {
             return prev.concat([{
               id: newId(),
               date: dayKey,
@@ -998,7 +1129,7 @@ window.__ModuleLoader__.load({
         }
 
         function patchItem(id, patch) {
-          setItems(function (prev) {
+          commitItems(function (prev) {
             return prev.map(function (item) {
               return item.id === id ? Object.assign({}, item, patch) : item;
             });
@@ -1055,7 +1186,7 @@ window.__ModuleLoader__.load({
 
         function toggleItem(entry) {
           if (!entry.done) celebrate(entry.title);
-          setItems(function (prev) {
+          commitItems(function (prev) {
             return prev.map(function (item) {
               if (item.id !== entry.id) return item;
               const doneDates = Array.isArray(item.doneDates) ? item.doneDates.slice() : [];
@@ -1068,7 +1199,7 @@ window.__ModuleLoader__.load({
         }
 
         function removeItem(entry) {
-          setItems(function (prev) {
+          commitItems(function (prev) {
             return prev.filter(function (item) { return item.id !== entry.id; });
           });
         }
@@ -1512,7 +1643,9 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dscb-list' }, taskRows),
             h('div', { className: 'dscb-hint' }, t('editHint'))),
           notice ? h('div', { className: 'dscb-hint' }, notice) : null,
-          h('div', { className: 'dscb-hint' }, t('hint') + ' · ' + BUILD_TAG));
+          h('div', { className: 'dscb-hint' },
+            t('hint') + ' · ' + BUILD_TAG +
+            (sync === 'host' ? ' · ' + t('syncHost') : sync === 'local' ? ' · ' + t('syncLocal') : '')));
 
         return h('div', { className: 'dscb-root' },
           h(Styles, null),

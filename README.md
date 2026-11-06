@@ -76,16 +76,43 @@ Remove `dsh-calendar-board` in the plugin manager. Your entries stay in the brow
 3. Check an entry to complete it → chime + fireworks; hover for color, underline, delete
 4. Header: `‹ ›` month, `Today`, `+ Add for today`, `Daily nudge`, `✦` preview the fireworks, speaker to mute, `⟳` resync scheduled reminders
 
+## Agent access
+
+The Host half is the canonical store, so **every DSH session** can read and edit the board through one tool — no browser scraping, no screenshots:
+
+```jsonc
+{ "action": "list", "from": "2026-11-02", "to": "2026-11-08" }
+{ "action": "add", "date": "2026-11-06", "title": "给 adon 发邮件", "time": "10:00" }
+{ "action": "complete", "id": "itmw3c6bd3c83xd" }
+{ "action": "remove", "id": "itmw3c6bd3c83xd" }
+```
+
+| action | arguments | meaning |
+| --- | --- | --- |
+| `list` | `date` or `from`/`to`, `includeDone` | entries with `id`, `date`, `time`, `title`, `done`, `repeat`, `color` |
+| `add` | `title`, optional `date` (defaults to today), `time`, `repeat:"daily"` | create an entry |
+| `update` | `id` + any of `title`/`date`/`time`/`repeat`/`color`/`underline` | edit in place |
+| `complete` | `id`, optional `date`, `done` | tick or untick one day of one entry |
+| `remove` | `id` | delete an entry |
+
+Things you can simply say to your agent:
+
+- 今天还剩哪些事没做？
+- 帮我加一条：明天 10 点给 adon 发邮件
+- 把「吃小龙虾」标记完成
+
+Other plugins can call the same implementation through the `calendarBoard` Host service.
+
 ## Data and privacy
 
 | What | Where |
 | --- | --- |
-| Your entries | browser localStorage: `dsh-calendar-board.items.v1` |
+| Your entries | `<DSH_HOME>/storages/calendar-board/items.json` on the Host; the page keeps a localStorage cache |
 | Sound preference | `dsh-calendar-board.sound.v1` |
 | Daily nudge preference | `dsh-calendar-board.notify.v1` |
 | Scheduled reminders | read-only, from the DSH `schedule` service, never stored |
 
-No network requests beyond DSH's own local HTTP port.
+No network requests beyond DSH's own local HTTP port. The panel footer shows `已同步 Host` / `仅本机保存` so you can see whether it is talking to the Host store.
 
 ## Compatibility
 
@@ -117,6 +144,7 @@ Edits to `client.js` hot-reload; edits to `index.js` (the Host half) need a DSH 
 
 ## Changelog
 
+- **1.1.0** — Host-side store + `calendar_board` agent tool + `calendarBoard` service; the panel syncs to the Host store instead of living only in localStorage
 - **1.0.1** — README screenshot; the panel footer now shows the package version
 - **1.0.0** — first public release: month view, inline editing, complete / underline / color / delete per entry, scheduled-reminder overlay, completion chime + fireworks + confetti
 

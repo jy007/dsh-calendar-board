@@ -1,15 +1,243 @@
 /**
  * Host half of the calendar board bundle.
  *
- * The board itself is a Client panel. This half adds one Host-answerable entry
- * point for the panel: a read-only JSON route that returns the active and
- * inactive scheduled reminders with their original Session bindings, read from
- * the Host `schedule` service. The panel prefers the Client remote face of that
- * service and falls back to this route when the remote namespace is unavailable.
+ * This is the canonical store and the single implementation of every board
+ * operation. Three callers reach it:
+ *
+ *  - Agent sessions, through the `calendar_board` tool (list / add / update /
+ *    complete / remove).
+ *  - The board panel, through the HTTP routes below (GET/POST the whole list).
+ *  - Other plugins, through the provided `calendarBoard` service.
+ *
+ * Items live in `<DSH_HOME>/storages/calendar-board/items.json`, so they survive
+ * a cleared browser storage and are readable while the page is closed.
  */
 
-const ROUTE_PATH = '/calendar-board/schedules';
-const CACHE_MS = 10000;
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import path from 'node:path';
+
+const ROUTE_ITEMS = '/calendar-board/items';
+const ROUTE_SCHEDULES = '/calendar-board/schedules';
+const SCHEDULE_CACHE_MS = 10000;
+
+const DSH_HOME = process.env.DSH_HOME || path.join(homedir(), '.dsh');
+const STORE_DIR = path.join(DSH_HOME, 'storages', 'calendar-board');
+const STORE_FILE = path.join(STORE_DIR, 'items.json');
+const STORE_VERSION = 1;
+
+const COLORS = ['', 'red', 'amber', 'green', 'blue'];
+const REPEATS = ['none', 'daily'];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}$/;
+const MAX_TITLE = 200;
+
+/* ------------------------------------------------------------------ store */
+
+let cache = null;
+let queue = Promise.resolve();
+
+function clockToday() {
+  const now = new Date();
+  return (
+    now.getFullYear() + '-' +
+    String(now.getMonth() + 1).padStart(2, '0') + '-' +
+    String(now.getDate()).padStart(2, '0')
+  );
+}
+
+function isItem(value) {
+  return Boolean(value) && typeof value === 'object' && typeof value.title === 'string' && DATE_RE.test(String(value.date));
+}
+
+function normalizeItem(raw) {
+  const title = String(raw.title == null ? '' : raw.title).trim().slice(0, MAX_TITLE);
+  if (!title) throw new Error('title is required');
+  const date = String(raw.date || '').trim();
+  if (!DATE_RE.test(date)) throw new Error('date must be YYYY-MM-DD');
+  const time = String(raw.time == null ? '' : raw.time).trim();
+  if (time && !TIME_RE.test(time)) throw new Error('time must be HH:MM or empty');
+  const repeat = REPEATS.includes(raw.repeat) ? raw.repeat : 'none';
+  const color = COLORS.includes(raw.color) ? raw.color : '';
+  const doneDates = Array.isArray(raw.doneDates) ? raw.doneDates.filter((d) => DATE_RE.test(String(d))) : [];
+  return {
+    id: typeof raw.id === 'string' && raw.id ? raw.id : 'it' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    date,
+    time,
+    title,
+    repeat,
+    doneDates,
+    color,
+    underline: raw.underline === true,
+  };
+}
+
+async function readStore() {
+  if (cache) return cache;
+  try {
+    const text = await readFile(STORE_FILE, 'utf8');
+    const parsed = JSON.parse(text);
+    const items = Array.isArray(parsed && parsed.items) ? parsed.items.filter(isItem) : [];
+    cache = { version: STORE_VERSION, items };
+  } catch (error) {
+    if (error && error.code !== 'ENOENT') {
+      console.warn('[calendar-board] store unreadable, starting empty:', error.message);
+    }
+    cache = { version: STORE_VERSION, items: [] };
+  }
+  return cache;
+}
+
+function persist(next) {
+  cache = next;
+  queue = queue
+    .then(async () => {
+      await mkdir(STORE_DIR, { recursive: true });
+      const target = STORE_FILE + '.' + process.pid + '.tmp';
+      await writeFile(target, JSON.stringify(next, null, 2) + '\n', 'utf8');
+      await rename(target, STORE_FILE);
+    })
+    .catch((error) => {
+      console.warn('[calendar-board] store write failed:', error && error.message);
+    });
+  return queue;
+}
+
+function sorted(items) {
+  return items.slice().sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    const at = a.time || '99:99';
+    const bt = b.time || '99:99';
+    if (at !== bt) return at < bt ? -1 : 1;
+    return a.title.localeCompare(b.title);
+  });
+}
+
+function isDone(item, date) {
+  return Array.isArray(item.doneDates) && item.doneDates.includes(date);
+}
+
+function view(item, date) {
+  const day = date || item.date;
+  return {
+    id: item.id,
+    date: item.date,
+    time: item.time,
+    title: item.title,
+    repeat: item.repeat,
+    color: item.color,
+    underline: item.underline,
+    done: isDone(item, day),
+  };
+}
+
+/* ------------------------------------------------------------- operations */
+
+export async function listItems(query = {}) {
+  const store = await readStore();
+  const single = DATE_RE.test(String(query.date || '')) ? query.date : '';
+  const from = DATE_RE.test(String(query.from || '')) ? query.from : '';
+  const to = DATE_RE.test(String(query.to || '')) ? query.to : '';
+  const includeDone = query.includeDone !== false;
+
+  const matches = store.items.filter((item) => {
+    if (single) return item.date === single;
+    if (from && item.date < from) return false;
+    if (to && item.date > to) return false;
+    return true;
+  });
+
+  const rows = sorted(matches)
+    .map((item) => view(item, single || undefined))
+    .filter((row) => includeDone || !row.done);
+
+  return { today: clockToday(), count: rows.length, items: rows };
+}
+
+/** Raw store rows for the panel: same shape it writes back, no derived fields. */
+export async function readItems(query = {}) {
+  const store = await readStore();
+  const single = DATE_RE.test(String(query.date || '')) ? query.date : '';
+  const from = DATE_RE.test(String(query.from || '')) ? query.from : '';
+  const to = DATE_RE.test(String(query.to || '')) ? query.to : '';
+  const items = sorted(store.items.filter((item) => {
+    if (single) return item.date === single;
+    if (from && item.date < from) return false;
+    if (to && item.date > to) return false;
+    return true;
+  }));
+  return { today: clockToday(), items: items.map((item) => Object.assign({}, item)) };
+}
+
+export async function addItem(input = {}) {
+  const store = await readStore();
+  const item = normalizeItem({
+    date: input.date || clockToday(),
+    title: input.title,
+    time: input.time,
+    repeat: input.repeat,
+    color: input.color,
+    underline: input.underline,
+  });
+  await persist({ version: STORE_VERSION, items: store.items.concat([item]) });
+  return { ok: true, item: view(item) };
+}
+
+export async function updateItem(input = {}) {
+  const store = await readStore();
+  const id = String(input.id || '');
+  const index = store.items.findIndex((item) => item.id === id);
+  if (index < 0) throw new Error('no item with id ' + id);
+  const current = store.items[index];
+  const next = store.items.slice();
+  next[index] = normalizeItem({
+    id: current.id,
+    date: input.date === undefined ? current.date : input.date,
+    title: input.title === undefined ? current.title : input.title,
+    time: input.time === undefined ? current.time : input.time,
+    repeat: input.repeat === undefined ? current.repeat : input.repeat,
+    color: input.color === undefined ? current.color : input.color,
+    underline: input.underline === undefined ? current.underline : input.underline,
+    doneDates: current.doneDates,
+  });
+  await persist({ version: STORE_VERSION, items: next });
+  return { ok: true, item: view(next[index]) };
+}
+
+export async function setDone(input = {}) {
+  const store = await readStore();
+  const id = String(input.id || '');
+  const index = store.items.findIndex((item) => item.id === id);
+  if (index < 0) throw new Error('no item with id ' + id);
+  const current = store.items[index];
+  const date = DATE_RE.test(String(input.date || '')) ? input.date : current.date;
+  const done = input.done !== false;
+  const doneDates = (current.doneDates || []).filter((entry) => entry !== date);
+  if (done) doneDates.push(date);
+  const next = store.items.slice();
+  next[index] = Object.assign({}, current, { doneDates });
+  await persist({ version: STORE_VERSION, items: next });
+  return { ok: true, item: view(next[index], date) };
+}
+
+export async function removeItem(input = {}) {
+  const store = await readStore();
+  const id = String(input.id || '');
+  const next = store.items.filter((item) => item.id !== id);
+  if (next.length === store.items.length) throw new Error('no item with id ' + id);
+  await persist({ version: STORE_VERSION, items: next });
+  return { ok: true, removed: id, remaining: next.length };
+}
+
+export async function replaceItems(input = {}) {
+  const raw = Array.isArray(input.items) ? input.items : [];
+  if (raw.length > 5000) throw new Error('too many items');
+  const items = raw.map((item) => normalizeItem(item));
+  await persist({ version: STORE_VERSION, items });
+  return { ok: true, count: items.length };
+}
+
+/* ------------------------------------------------------------------- HTTP */
 
 function sendJson(res, status, payload) {
   const body = JSON.stringify(payload);
@@ -21,20 +249,86 @@ function sendJson(res, status, payload) {
   res.end(body);
 }
 
-export function apply(ctx) {
-  let cache = { at: 0, entries: null };
+function readBody(req, limit = 1024 * 1024) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > limit) {
+        reject(new Error('payload too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
 
-  async function readCatalog() {
-    const now = Date.now();
-    if (cache.entries && now - cache.at < CACHE_MS) return cache.entries;
-    const schedule = ctx.get('schedule');
-    if (!schedule || typeof schedule.catalog !== 'function') {
-      throw new Error('schedule service unavailable');
-    }
-    const entries = await schedule.catalog();
-    const value = Array.isArray(entries) ? entries : [];
-    cache = { at: now, entries: value };
-    return value;
+/* ------------------------------------------------------------------ apply */
+
+export function apply(ctx) {
+  const api = { listItems, addItem, updateItem, setDone, removeItem, replaceItems };
+  try {
+    ctx.effect(() => ctx.provide('calendarBoard', api), 'calendar-board service');
+  } catch (error) {
+    console.warn('[calendar-board] service not provided:', error && error.message);
+  }
+
+  const tools = ctx.get('tools');
+  if (tools && typeof tools.register === 'function') {
+    ctx.effect(() => tools.register({
+      name: 'calendar_board',
+      description:
+        'Read and change the user\'s "日历看板 / Calendar Board" entries — one task list per day, the same one the calendar panel edits. ' +
+        'Use it whenever the user asks what is on their calendar, today or this week, or asks you to add, reschedule, complete or delete a daily item. ' +
+        'Dates are local calendar days (YYYY-MM-DD); "today" is resolved when date is omitted. ' +
+        'Actions: list (filter by date or from/to), add (title, optional date/time "HH:MM"/repeat "daily"), update (id + fields), complete (id, optional date, done), remove (id).',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['list', 'add', 'update', 'complete', 'remove'], description: 'Operation to perform.' },
+          date: { type: 'string', description: 'YYYY-MM-DD. list: one day. add: defaults to today. complete: defaults to the item date.' },
+          from: { type: 'string', description: 'list only: inclusive start date YYYY-MM-DD.' },
+          to: { type: 'string', description: 'list only: inclusive end date YYYY-MM-DD.' },
+          includeDone: { type: 'boolean', description: 'list only: include completed entries (default true).' },
+          id: { type: 'string', description: 'Item id, required for update / complete / remove.' },
+          title: { type: 'string', description: 'Item text, required for add.' },
+          time: { type: 'string', description: 'Optional HH:MM time, empty string clears it.' },
+          repeat: { type: 'string', enum: ['none', 'daily'], description: 'daily repeats the entry every day.' },
+          color: { type: 'string', enum: ['', 'red', 'amber', 'green', 'blue'], description: 'Optional text color.' },
+          underline: { type: 'boolean', description: 'Optional underline.' },
+          done: { type: 'boolean', description: 'complete only: true marks done (default), false unmarks.' },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: { type: 'object', properties: { ok: { type: 'boolean' } }, additionalProperties: true },
+        render(args, value) {
+          return [{ type: 'text', text: JSON.stringify(value, null, 2) }];
+        },
+      },
+      async execute(args) {
+        const input = args && typeof args === 'object' ? args : {};
+        switch (input.action) {
+          case 'list':
+            return listItems(input);
+          case 'add':
+            return addItem(input);
+          case 'update':
+            return updateItem(input);
+          case 'complete':
+            return setDone(input);
+          case 'remove':
+            return removeItem(input);
+          default:
+            throw new Error('unknown action: ' + String(input.action));
+        }
+      },
+    }), 'calendar-board tool');
   }
 
   const webServer = ctx.get('webServer');
@@ -42,18 +336,54 @@ export function apply(ctx) {
 
   ctx.effect(() => webServer.register({
     kind: 'exact',
-    path: ROUTE_PATH,
+    path: ROUTE_ITEMS,
+    handler: async (req, res) => {
+      try {
+        if (req.method === 'GET') {
+          const query = {};
+          const url = new URL(req.url || '/', 'http://127.0.0.1');
+          for (const key of ['date', 'from', 'to']) {
+            const value = url.searchParams.get(key);
+            if (value) query[key] = value;
+          }
+          const result = await readItems(query);
+          sendJson(res, 200, { ok: true, items: result.items });
+          return;
+        }
+        if (req.method === 'POST' || req.method === 'PUT') {
+          const text = await readBody(req);
+          const payload = text ? JSON.parse(text) : {};
+          sendJson(res, 200, await replaceItems(payload));
+          return;
+        }
+        sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
+      } catch (error) {
+        sendJson(res, 400, { ok: false, error: String((error && error.message) || error) });
+      }
+    },
+  }), 'calendar-board items route');
+
+  let schedules = { at: 0, entries: null };
+  ctx.effect(() => webServer.register({
+    kind: 'exact',
+    path: ROUTE_SCHEDULES,
     handler: async (req, res) => {
       if (req.method && req.method !== 'GET') {
         sendJson(res, 405, { ok: false, error: 'method_not_allowed' });
         return;
       }
       try {
-        const entries = await readCatalog();
-        sendJson(res, 200, { ok: true, entries });
+        const schedule = ctx.get('schedule');
+        if (!schedule || typeof schedule.catalog !== 'function') throw new Error('schedule service unavailable');
+        const now = Date.now();
+        if (!schedules.entries || now - schedules.at > SCHEDULE_CACHE_MS) {
+          const entries = await schedule.catalog();
+          schedules = { at: now, entries: Array.isArray(entries) ? entries : [] };
+        }
+        sendJson(res, 200, { ok: true, entries: schedules.entries });
       } catch (error) {
         sendJson(res, 503, { ok: false, error: String((error && error.message) || error) });
       }
     },
-  }));
+  }), 'calendar-board schedules route');
 }

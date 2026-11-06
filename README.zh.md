@@ -76,16 +76,43 @@ cd dsh-calendar-board && git pull
 3. 勾选事项 → 音效 + 烟花；悬停可换色、加下划线、删除
 4. 顶栏：`‹ ›` 换月、`今天` 回到本月、`+ 添加今天`、`每日提醒`、`✦` 预览烟花、喇叭静音、`⟳` 重新同步定时任务
 
+## 让 Agent 直接读写看板
+
+Host 半是唯一的数据源，所以**任何 DSH 会话**都能通过一个工具读改看板，不需要截图、不需要猜：
+
+```jsonc
+{ "action": "list", "from": "2026-11-02", "to": "2026-11-08" }
+{ "action": "add", "date": "2026-11-06", "title": "给 adon 发邮件", "time": "10:00" }
+{ "action": "complete", "id": "itmw3c6bd3c83xd" }
+{ "action": "remove", "id": "itmw3c6bd3c83xd" }
+```
+
+| action | 参数 | 说明 |
+| --- | --- | --- |
+| `list` | `date` 或 `from`/`to`、`includeDone` | 返回 `id`、`date`、`time`、`title`、`done`、`repeat`、`color` |
+| `add` | `title`，可选 `date`（默认今天）、`time`、`repeat:"daily"` | 新增一条 |
+| `update` | `id` + `title`/`date`/`time`/`repeat`/`color`/`underline` 任意项 | 原地修改 |
+| `complete` | `id`，可选 `date`、`done` | 勾选/取消某一条的某一天 |
+| `remove` | `id` | 删除 |
+
+可以直接对助手说：
+
+- 今天还剩哪些事没做？
+- 帮我加一条：明天 10 点给 adon 发邮件
+- 把「吃小龙虾」标记完成
+
+其他插件也可以直接调用同一个实现（Host 服务 `calendarBoard`）。
+
 ## 数据与隐私
 
 | 内容 | 位置 |
 | --- | --- |
-| 你写的事项 | 浏览器 localStorage：`dsh-calendar-board.items.v1` |
+| 你写的事项 | Host 侧 `<DSH_HOME>/storages/calendar-board/items.json`；页面保留一份 localStorage 缓存 |
 | 音效开关 | `dsh-calendar-board.sound.v1` |
 | 每日提醒开关 | `dsh-calendar-board.notify.v1` |
 | 定时任务 | 只读，来自 DSH `schedule` 服务，不落盘 |
 
-除本机 DSH 自己的 HTTP 端口外，没有任何网络请求。
+除本机 DSH 自己的 HTTP 端口外，没有任何网络请求。面板底部会显示 `已同步 Host` / `仅本机保存`，一眼能看出它有没有接上 Host 存储。
 
 ## 兼容性
 
@@ -117,6 +144,7 @@ dsh-calendar-board/
 
 ## 更新日志
 
+- **1.1.0** — Host 侧存储 + `calendar_board` Agent 工具 + `calendarBoard` 服务；面板改为同步 Host 存储，不再只存在 localStorage
 - **1.0.1** — README 截图；面板版本号改为跟随包版本
 - **1.0.0** — 首个公开版本：月视图、内联编辑、完成/下划线/换色/删除、定时任务叠加、完成音效 + 烟花 + 彩带
 
