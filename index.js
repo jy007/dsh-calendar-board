@@ -671,13 +671,13 @@ export function apply(ctx) {
     }), 'calendar-board tool');
   }
 
-  const webServer = ctx.get('webServer');
-  if (!webServer || typeof webServer.register !== 'function') {
-    console.warn('[calendar-board] webServer service is not available: HTTP routes are disabled');
-    return;
-  }
-
-  ctx.effect(() => webServer.register({
+  /**
+   * Routes are registered through ctx.inject so they appear whenever webServer
+   * becomes available, and disappear with it. DSH 0.2.2 no longer hands an
+   * undeclared service to ctx.get(), which is why this used to register nothing.
+   */
+  function registerRoutes(owner, webServer) {
+  owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_ITEMS,
     handler: async (req, res) => {
@@ -706,7 +706,7 @@ export function apply(ctx) {
     },
   }), 'calendar-board items route');
 
-  ctx.effect(() => webServer.register({
+  owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_SOURCES,
     handler: async (req, res) => {
@@ -730,7 +730,7 @@ export function apply(ctx) {
     },
   }), 'calendar-board sources route');
 
-  ctx.effect(() => webServer.register({
+  owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_CALENDARS,
     handler: async (req, res) => {
@@ -743,7 +743,7 @@ export function apply(ctx) {
     },
   }), 'calendar-board calendars route');
 
-  ctx.effect(() => webServer.register({
+  owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_EVENTS,
     handler: async (req, res) => {
@@ -764,7 +764,7 @@ export function apply(ctx) {
   }), 'calendar-board events route');
 
   let schedules = { at: 0, entries: null };
-  ctx.effect(() => webServer.register({
+  owner.effect(() => webServer.register({
     kind: 'exact',
     path: ROUTE_SCHEDULES,
     handler: async (req, res) => {
@@ -786,4 +786,18 @@ export function apply(ctx) {
       }
     },
   }), 'calendar-board schedules route');
+  }
+
+  if (typeof ctx.inject === 'function') {
+    ctx.inject(['webServer'], function (webCtx) {
+      const service = webCtx.webServer || (webCtx.get && webCtx.get('webServer'));
+      if (service && typeof service.register === 'function') registerRoutes(webCtx, service);
+      else console.warn('[calendar-board] webServer service is not available: HTTP routes are disabled');
+    });
+  } else {
+    const service = ctx.get('webServer');
+    if (service && typeof service.register === 'function') registerRoutes(ctx, service);
+    else console.warn('[calendar-board] webServer service is not available: HTTP routes are disabled');
+  }
 }
+
