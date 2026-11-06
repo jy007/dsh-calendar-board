@@ -184,7 +184,7 @@ dsh-calendar-board/
 
 ## 更新日志
 
-- **未发布** — 移除 Google OAuth：日历来源只剩 iCal 订阅与本机日历，不需要注册任何应用
+- **1.5.0** — 定时任务只在今天和明天显示，并按运行状态配色（今日待运行红、明日未运行黄、已运行/已过期灰），每 30 秒刷新；图例里的「我的事项」「定时任务」现在会真正隐藏对应内容；移除 Google OAuth，日历来源只剩 iCal 订阅与本机日历
 - **1.4.0** — macOS 本机日历读取（走 Calendar.app，零 OAuth、零地址粘贴），连接面板里可选日历，后台读取并缓存
 - **1.3.0** — Google 日历授权登录：OAuth 2.0 + PKCE、回环重定向、token 刷新、`calendarList` + `events.list` 同步；工具新增 `connect` / `disconnect` / `accounts` / `calendars`
 - **1.2.0** — 日历订阅：iCal 源（Google / 飞书 / Outlook / Apple），按来源配色，图例可逐个开关；工具新增 `sources` / `events` / `subscribe` / `unsubscribe` / `toggleSource`

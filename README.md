@@ -184,7 +184,7 @@ Edits to `client.js` hot-reload; edits to `index.js` (the Host half) need a DSH 
 
 ## Changelog
 
-- **Unreleased** — removed the Google OAuth provider: calendar sources are iCal subscriptions plus this Mac's calendars, so nothing has to be registered
+- **1.5.0** — scheduled reminders now appear only for today and tomorrow, coloured by run state (due today red, tomorrow amber, ran/expired grey) and refreshed every 30s; the legend's "My entries" and "Scheduled" chips now really hide their layer; the Google OAuth provider is removed, so calendar sources are iCal subscriptions and this Mac's calendars only
 - **1.4.0** — local calendar reading on macOS through Calendar.app (no OAuth client, no iCal address), with a picker in the connect panel and background caching
 - **1.3.0** — Google Calendar sign-in: OAuth 2.0 + PKCE with a loopback redirect, token refresh, `calendarList` + `events.list` sync, and `connect` / `disconnect` / `accounts` / `calendars` tool actions
 - **1.2.0** — calendar subscriptions: iCal feeds (Google / Feishu / Outlook / Apple) with per-source colors, a legend that toggles each source, and `sources` / `events` / `subscribe` / `unsubscribe` / `toggleSource` tool actions
