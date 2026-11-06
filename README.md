@@ -144,6 +144,8 @@ Edits to `client.js` hot-reload; edits to `index.js` (the Host half) need a DSH 
 
 ## Changelog
 
+- **1.1.2** — the panel-independent migration runs on page load, so pre-1.1 localStorage entries reach the Host store without opening the panel
+- **1.1.1** — the panel retries the Host connection every 15s instead of staying local after one failed attempt
 - **1.1.0** — Host-side store + `calendar_board` agent tool + `calendarBoard` service; the panel syncs to the Host store instead of living only in localStorage
 - **1.0.1** — README screenshot; the panel footer now shows the package version
 - **1.0.0** — first public release: month view, inline editing, complete / underline / color / delete per entry, scheduled-reminder overlay, completion chime + fireworks + confetti
