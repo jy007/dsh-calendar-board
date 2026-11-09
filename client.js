@@ -146,6 +146,40 @@ function ruleLabel(entry, t) {
 
 const PALETTE = ['', 'red', 'amber', 'green', 'blue'];
 
+/** Parse the CSS colors the theme tokens actually carry (#rgb, #rrggbb, rgb[a]()). */
+function parseCssColor(value) {
+  const text = String(value || '').trim();
+  const hex = /^#([0-9a-f]{3,8})$/i.exec(text);
+  if (hex) {
+    let digits = hex[1];
+    if (digits.length === 3) digits = digits.split('').map(function (c) { return c + c; }).join('');
+    if (digits.length !== 6 && digits.length !== 8) return null;
+    return {
+      r: parseInt(digits.slice(0, 2), 16),
+      g: parseInt(digits.slice(2, 4), 16),
+      b: parseInt(digits.slice(4, 6), 16),
+    };
+  }
+  const rgb = /^rgba?\(\s*([0-9.]+)[\s,]+([0-9.]+)[\s,]+([0-9.]+)/i.exec(text);
+  if (rgb) return { r: Number(rgb[1]), g: Number(rgb[2]), b: Number(rgb[3]) };
+  return null;
+}
+
+function relativeLuminance(color) {
+  const channel = function (value) {
+    const c = value / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b);
+}
+
+/** Ink that stays readable on top of a token color, whatever the theme says it is. */
+function contrastInk(value, scheme) {
+  const rgb = parseCssColor(value);
+  if (rgb) return relativeLuminance(rgb) > 0.45 ? '#0b1220' : '#ffffff';
+  return scheme === 'dark' ? '#0b1220' : '#ffffff';
+}
+
 /** Decoration classes shared by every renderer of one entry. */
 function decorationClasses(entry) {
   const classes = [];
@@ -600,7 +634,7 @@ window.__ModuleLoader__.load({
       '.dscb-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}',
       '.dscb-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 12px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-size:12.5px;font-family:inherit;cursor:pointer;transition:background .15s ease,border-color .15s ease,color .15s ease;}',
       '.dscb-btn:hover{background:var(--dsw-alias-bg-layer-2);border-color:var(--dsw-alias-border-l2);}',
-      '.dscb-btn-primary{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);color:#fff;}',
+      '.dscb-btn-primary{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);color:var(--dscb-on-brand,#fff);}',
       '.dscb-btn-primary:hover{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);opacity:.9;}',
       '.dscb-icon-btn{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;padding:0;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;transition:background .15s ease,color .15s ease;}',
       '.dscb-icon-btn:hover{background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary);}',
@@ -645,8 +679,8 @@ window.__ModuleLoader__.load({
       '.dscb-task.is-schedule.is-next{border-left:3px solid var(--dsw-alias-state-warn-primary);}',
       '.dscb-task.is-schedule.is-next .dscb-task-title{color:var(--dsw-alias-state-warn-primary);}',
       '.dscb-task.is-schedule.is-done,.dscb-task.is-schedule.is-expired{opacity:.55;}',
-      '.dscb-tag-due{background:var(--dsw-alias-state-error-primary);color:#fff;}',
-      '.dscb-tag-next{background:var(--dsw-alias-state-warn-primary);color:#fff;}',
+      '.dscb-tag-due{background:var(--dsw-alias-state-error-primary);color:var(--dscb-on-error,#fff);}',
+      '.dscb-tag-next{background:var(--dsw-alias-state-warn-primary);color:var(--dscb-on-warn,#fff);}',
       '.dscb-line-time{color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums;flex:none;}',
       '.dscb-line-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}',
       '.dscb-more{font-size:11px;color:var(--dsw-alias-label-secondary);padding-left:4px;}',
@@ -666,7 +700,7 @@ window.__ModuleLoader__.load({
       '.dscb-task.is-schedule{background:transparent;border-style:dashed;}',
       '.dscb-check{appearance:none;-webkit-appearance:none;width:16px;height:16px;margin:2px 0 0;flex:none;border-radius:5px;border:1.5px solid var(--dsw-alias-border-l2);background:transparent;cursor:pointer;position:relative;}',
       '.dscb-check:checked{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);}',
-      '.dscb-check:checked:after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;border:solid #fff;border-width:0 1.8px 1.8px 0;transform:rotate(42deg);}',
+      '.dscb-check:checked:after{content:"";position:absolute;left:4px;top:1px;width:5px;height:9px;border:solid var(--dscb-on-brand,#fff);border-width:0 1.8px 1.8px 0;transform:rotate(42deg);}',
       '.dscb-task-main{flex:1;min-width:0;}',
       '.dscb-task-title{font-size:12.5px;word-break:break-word;}',
       '.dscb-task.is-done .dscb-task-title{text-decoration:line-through;color:var(--dsw-alias-label-secondary);}',
@@ -734,6 +768,17 @@ window.__ModuleLoader__.load({
       '.dscb-cheer-text{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
       '@keyframes dscb-cheer-in{from{opacity:0;transform:translate(-50%,-8px) scale(.96);}to{opacity:1;transform:translate(-50%,0) scale(1);}}',
       '@media (prefers-reduced-motion:reduce){.dscb-cheer{animation:none;}}',
+      '[data-dscb-scheme="light"]{color-scheme:light;}',
+      '[data-dscb-scheme="dark"]{color-scheme:dark;}',
+      '[data-dscb-scheme="dark"] .dscb-btn,[data-dscb-scheme="dark"] .dscb-icon-btn,[data-dscb-scheme="dark"] .dscb-chip,[data-dscb-scheme="dark"] .dscb-source,[data-dscb-scheme="dark"] .dscb-input,[data-dscb-scheme="dark"] .dscb-select{border-color:var(--dsw-alias-border-l2);}',
+      '[data-dscb-scheme="dark"] .dscb-btn-primary{border-color:var(--dsw-alias-brand-primary);}',
+      '[data-dscb-scheme="dark"] .dscb-btn:hover,[data-dscb-scheme="dark"] .dscb-icon-btn:hover{background:var(--dsw-alias-bg-layer-2);}',
+      '[data-dscb-scheme="dark"] .dscb-cheer{box-shadow:0 12px 32px rgba(0,0,0,.55);}',
+      '[data-dscb-scheme="dark"] .dscb-task,[data-dscb-scheme="dark"] .dscb-add{border-color:var(--dsw-alias-border-l2);}',
+      '[data-dscb-scheme="dark"] .dscb-line.is-schedule.is-done,[data-dscb-scheme="dark"] .dscb-line.is-schedule.is-expired{opacity:.6;}',
+      '[data-dscb-scheme="dark"] .dscb-task.is-schedule.is-done,[data-dscb-scheme="dark"] .dscb-task.is-schedule.is-expired{opacity:.65;}',
+      '[data-dscb-scheme="dark"] .dscb-source.is-off{opacity:.55;}',
+      '[data-dscb-scheme="dark"] .dscb-cell:hover{background:var(--dsw-alias-bg-layer-1);}',
       '@media (max-width:1080px){.dscb-rail{width:264px;}}',
       '@media (max-width:920px){.dscb-rail{display:none;}.dscb-weekrow{grid-template-columns:36px repeat(7,minmax(0,1fr));}.dscb-grid{grid-template-columns:36px repeat(7,minmax(0,1fr));}}',
       '.dscb-icon{display:block;}',
@@ -1046,6 +1091,32 @@ window.__ModuleLoader__.load({
         }));
     }
 
+    /** Current scheme plus readable inks derived from the live theme tokens. */
+    function readThemeInfo(context) {
+      let scheme = 'light';
+      let tokens = null;
+      try {
+        const service = context && typeof context.get === 'function' ? context.get('theme') : null;
+        const snapshot = service && typeof service.getTheme === 'function' ? service.getTheme() : null;
+        const active = snapshot && snapshot.active ? snapshot.active : null;
+        if (active) {
+          if (active.colorScheme === 'dark') scheme = 'dark';
+          tokens = active.tokens || null;
+        }
+      } catch (error) {
+        scheme = 'light';
+      }
+      const read = function (name) {
+        return tokens && typeof tokens === 'object' ? tokens[name] : '';
+      };
+      return {
+        scheme: scheme,
+        onBrand: contrastInk(read('--dsw-alias-brand-primary'), scheme),
+        onError: contrastInk(read('--dsw-alias-state-error-primary'), scheme),
+        onWarn: contrastInk(read('--dsw-alias-state-warn-primary'), scheme),
+      };
+    }
+
     function createBoard(ctx) {
       const localeService = safeGet(ctx, 'locale');
       const t = makeTranslate(localeService);
@@ -1068,6 +1139,7 @@ window.__ModuleLoader__.load({
         const [subError, setSubError] = useState('');
         const [feedTick, setFeedTick] = useState(0);
         const [nowTick, setNowTick] = useState(0);
+        const [themeInfo, setThemeInfo] = useState(function () { return readThemeInfo(ctx); });
         const [schedule, setSchedule] = useState({ status: 'loading', entries: [], source: null });
         const [notifyOn, setNotifyOn] = useState(readNotifyFlag);
         const [notice, setNotice] = useState('');
@@ -1101,6 +1173,20 @@ window.__ModuleLoader__.load({
         useEffect(function () {
           const timer = setInterval(function () { setNowTick(function (n) { return n + 1; }); }, 30000);
           return function () { clearInterval(timer); };
+        }, []);
+
+        // Follow the app theme: light/dark flips change both the scheme and the inks.
+        useEffect(function () {
+          const themeService = safeGet(ctx, 'theme');
+          if (!themeService) return undefined;
+          const read = function () { setThemeInfo(readThemeInfo(ctx)); };
+          read();
+          if (typeof ctx.on !== 'function') return undefined;
+          try {
+            return ctx.on('theme/change', read);
+          } catch (error) {
+            return undefined;
+          }
         }, []);
 
         function pushToHost(list) {
@@ -2159,7 +2245,15 @@ window.__ModuleLoader__.load({
             t('hint') + ' · ' + BUILD_TAG +
             (sync === 'host' ? ' · ' + t('syncHost') : sync === 'local' ? ' · ' + t('syncLocal') : '')));
 
-        return h('div', { className: 'dscb-root' },
+        return h('div', {
+          className: 'dscb-root',
+          'data-dscb-scheme': themeInfo.scheme,
+          style: {
+            '--dscb-on-brand': themeInfo.onBrand,
+            '--dscb-on-error': themeInfo.onError,
+            '--dscb-on-warn': themeInfo.onWarn,
+          },
+        },
           h(Styles, null),
           header,
           legendBar,
